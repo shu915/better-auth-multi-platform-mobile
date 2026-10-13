@@ -1,3 +1,17 @@
+# better-auth-multi-platform (mobile)
+
+ひとつのログインを、複数のクライアントで共有するためのサンプルの、モバイル(Expo)側です。
+Web アプリ(Better Auth)でログインし、そのトークンで Go API を呼ぶ構成の、3 つ目のクライアントです。
+今は、Expo のテンプレートを作っただけの状態で、ログインはまだありません。
+
+- Web(Next.js、Better Auth): [better-auth-multi-platform-web](https://github.com/shu915/better-auth-multi-platform-web)
+- Go API: [better-auth-multi-platform-api](https://github.com/shu915/better-auth-multi-platform-api)
+- アプリのスキームは `betterauthmulti`(`app.json`)。Web の `trustedOrigins` に、`betterauthmulti://` を足す必要がある(まだ未設定)。
+
+以降は、Expo のテンプレートの説明です。
+
+---
+
 # Welcome to your Expo app 👋
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
