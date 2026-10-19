@@ -1,0 +1,27 @@
+claude-progress.txt (mobile)
+最終更新: 2026-10-19
+新しいセッションは、最初にこのファイルと CLAUDE.md を読む。作業の区切りごとに更新する。
+Web 側の認証のルールは Web の docs/design.md。ここには状況だけを書く。
+
+## 完了したタスク
+- スパイク(使い捨て。ブランチ spike/auth-flow、Web 側は spike/expo-auth。どちらも push 済み、main には入っていない)
+  - 確かめたこと: マジックリンク → ディープリンクでアプリに戻る → セッションを SecureStore に保存 → GET /api/auth/token に Bearer で JWT → Go の GET /me。iOS と Android の両方で /me まで通った
+  - 分かったこと: Android エミュレータは localhost が自分自身(Mac は 10.0.2.2、メールのリンクは adb reverse tcp:3000 tcp:3000)。iOS 27 のシミュレータは scene 非対応のアプリを落とす(SDK 58 のテンプレートで直る)。Android 16 以降はローカルネットワークの許可を聞かれる(拒否すると接続できない)。CocoaPods が要る
+- Web 側の Expo 対応(feature/expo-native-client に 2a2370a を cherry-pick 済み。未 push、PR 未作成)
+
+## 実行中のタスク
+- ブランチ feature/auth-flow(main から)に、本実装を作り始めるところ。CLAUDE.md を書いた(未コミット)
+
+## 既知の限界(許容している)
+- 実機は未確認(シミュレータとエミュレータのみ)
+- 本番の Universal Links / App Links は未対応(今は betterauthmulti:// のカスタムスキームだけ)
+- Google ログインのリンク(モバイルから)は未対応
+
+## これからのタスク(順番)
+1. SDK 58 への更新を最初のコミットにする(スパイクの package.json・package-lock.json・app.json を取り込む)
+2. Web の feature/expo-native-client の PR を出して main に入れる(コミットメッセージの「実機未確認」を直す)
+3. Go のマイグレーションが開発 DB に未適用(profiles が無く GET /me/profile が 500)。人が goose up を実行する
+4. 認証まわりを整えて書き直す(auth-client、config、deep-link、token。スパイクの画面は捨てる)
+5. 画面: ログイン、プロフィール(bio の表示と更新)、ログアウト。ログイン状態で画面を出し分ける
+6. hooks(rm -r の許可リスト、.env のブロック、Stop hook で lint と tsc)と CI(lint と tsc)、evaluator を入れる
+7. 退会(DELETE /me)と、Web の /token の HTTP 拒否の見直し
