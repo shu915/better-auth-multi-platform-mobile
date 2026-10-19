@@ -16,7 +16,8 @@ import { APP_SCHEME, STORAGE_PREFIX } from '@/lib/config';
 //
 // Any app or web page can open betterauthmulti://..., so a link is only accepted when its `state`
 // is the one this app just made. Otherwise someone could hand the app their own session cookie
-// (login CSRF). The state is used once, and only the newest request counts.
+// (login CSRF). The state is used once, and only the newest request counts. A link with the wrong
+// state is refused but leaves the pending request alone, so it cannot be used to cancel a sign-in.
 // A custom scheme can still be registered by another app and read the cookie from a real link. That
 // needs Universal Links / App Links (or a one-time code exchange) and is a known limit.
 const cookieKey = `${STORAGE_PREFIX}_cookie`; // where expoClient keeps the session cookie
@@ -40,7 +41,8 @@ function parsePending(raw: string | null): Pending | null {
   }
 }
 
-export type RequestResult = { ok: true } | { ok: false; reason: string };
+// `status` is the HTTP status when the web app answered (429 is "too many requests").
+export type RequestResult = { ok: true } | { ok: false; reason: string; status?: number };
 
 export async function requestSignInLink(email: string): Promise<RequestResult> {
   const state = Crypto.randomUUID();
@@ -53,7 +55,11 @@ export async function requestSignInLink(email: string): Promise<RequestResult> {
     });
     if (!error) return { ok: true };
     await SecureStore.deleteItemAsync(pendingKey);
-    return { ok: false, reason: error.message ?? `request failed (${error.status})` };
+    return {
+      ok: false,
+      reason: error.message ?? `request failed (${error.status})`,
+      status: error.status,
+    };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
@@ -76,17 +82,25 @@ export async function acceptSignInLink(url: string): Promise<AcceptResult> {
   }
 
   try {
-    const pending = parsePending(await SecureStore.getItemAsync(pendingKey));
-    // Used up before anything is stored, so the same link cannot be replayed.
-    await SecureStore.deleteItemAsync(pendingKey);
-    if (!pending) return { kind: 'rejected', reason: 'no sign-in was requested from this app' };
+    const raw = await SecureStore.getItemAsync(pendingKey);
+    const pending = parsePending(raw);
+    if (!pending) {
+      if (raw !== null) await SecureStore.deleteItemAsync(pendingKey); // unreadable: clear it
+      return { kind: 'rejected', reason: 'no sign-in was requested from this app' };
+    }
     if (Date.now() - pending.createdAt > PENDING_MAX_AGE_MS) {
+      await SecureStore.deleteItemAsync(pendingKey);
       return { kind: 'rejected', reason: 'the request has expired' };
     }
+    // A link with another state is not ours. The pending request is kept: otherwise a web page
+    // that opens betterauthmulti:///?cookie=x could cancel a sign-in that is in progress, and the
+    // real mail link would then be refused.
     if (queryParams?.state !== pending.state) {
       return { kind: 'rejected', reason: 'state does not match' };
     }
 
+    // Ours: used up before anything is stored, so the same link cannot be replayed.
+    await SecureStore.deleteItemAsync(pendingKey);
     const current = await SecureStore.getItemAsync(cookieKey);
     await SecureStore.setItemAsync(cookieKey, getSetCookie(cookie, current ?? undefined));
     // Tell the session hook to fetch the session again with the new cookie.
