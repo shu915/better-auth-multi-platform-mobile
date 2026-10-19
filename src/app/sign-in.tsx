@@ -21,13 +21,20 @@ export default function SignInScreen() {
     if (!canSend) return;
     setStatus({ kind: 'sending' });
     const result = await requestSignInLink(trimmed);
-    // The reason is for developers; the screen says the same thing whatever the cause, so it never
-    // tells whether an address is registered.
-    setStatus(
-      result.ok
-        ? { kind: 'sent' }
-        : { kind: 'error', message: 'Could not send the link. Check the address and try again.' },
-    );
+    if (result.ok) {
+      setStatus({ kind: 'sent' });
+      return;
+    }
+    // The reason is for developers. The screen does not tell whether an address is registered: the
+    // message is the same whatever the cause, except when the web app says "too many requests",
+    // which says nothing about the address.
+    setStatus({
+      kind: 'error',
+      message:
+        result.status === 429
+          ? 'Too many requests. Wait a little and try again.'
+          : 'Could not send the link. Check the address and try again.',
+    });
   };
 
   return (
