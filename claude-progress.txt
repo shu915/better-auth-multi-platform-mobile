@@ -15,6 +15,8 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
   - 画面: _layout(ログイン状態で sign-in と index を出し分け。ディープリンクの受け取り)、sign-in(メールの入力と送信)、index(最小のホーム。メールの表示とログアウト)
   - +native-intent.ts: リンクの Cookie をルーターのパラメータに残さない(端末で確認済み)
   - better-auth と @better-auth/expo は Web と同じ 1.7.7 に固定
+- レビューの指摘の反映: 他人のリンク(state が違う)で待機状態を消さない、サインアウトの失敗を画面に出す、429 の文言を分ける
+- Web と Go の修正(レビューの S1): JWT に auth_time を載せ(Web の PR #23)、Go の DELETE /me が 5 分以内の auth_time を要求する(Go の PR #17)。盗まれたセッションから JWT を作って退会データを消せる穴を塞いだ。Web で退会まで確認済み
 - 端末での確認(iOS シミュレータと Android エミュレータ): ログイン、ログアウト、コールドスタート(アプリを終了してからリンクで起動)でログインできる。偽のリンク(state が違う)は、iOS と Android の両方で拒否される(iOS は送信の前後とも確認)
 
 ## 実行中のタスク
@@ -26,11 +28,18 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - Google ログインのリンク(モバイルから)は未対応
 - 画面と sign-in-link のテストはない。evaluator と CI は、端末での動作とネイティブのビルドを確認できない
 - 最新の送信だけが有効(連続で送ると、前のリンクは使えなくなる)
+- **本番の前に必須(レビューの S3)**: カスタムスキーム(betterauthmulti://)は他のアプリも登録できる。さらに Web の本番の trustedOrigins が無条件にこのスキームを含むので、モバイルを使わない人のメール宛てにも、攻撃者が callbackURL 付きのリンクを送らせられる。本番に出す前に、1 回限りのコード交換(Cookie を URL に載せない。短命のコードを、アプリが verifier 付きで引き換える)にする。Universal Links / App Links にする場合も、セッションを URL に載せない形にする
+- app.json の com.anonymous.mobile は雛形のまま。本番の前に変える(ストア審査と App Links の設定で詰まる)
+- APP_SCHEME と STORAGE_PREFIX が config.ts と app.json に二重定義(コメントで同期を促しているだけ)。app.config.ts から読むほうが安全
 - 開発中は、Android エミュレータでマジックリンクを開くのに adb reverse tcp:3000 tcp:3000 が要る(エミュレータの再起動で消える)
 
 ## これからのタスク(順番)
 1. feature/auth-flow の PR を出す(evaluator を通してから)
 2. Go のマイグレーションが開発 DB に未適用(profiles が無く GET /me/profile が 500)。人が goose up を実行する
 3. 画面: プロフィール(bio の表示と更新)。api.ts を使う。取得に失敗したときは画面を壊さず、再読み込みを出す。401 はログアウト扱い
-4. 退会(DELETE /me)と、Web の /token の HTTP 拒否の見直し
-5. sign-in-link の単体テスト(テスト環境の用意から)
+4. 退会。前提が 2 つある
+   - Go の DELETE /me は Go のデータしか消さない。Web の /delete-user は HTTP では SERVER_ONLY なので、モバイルはユーザー本体を消せない。「Go のデータ削除 → ユーザー削除」は、Web に、新しいログインの確認と通知メール付きの専用エンドポイントを置いて、そこでやる
+   - ログインから 5 分を過ぎると 403(recent sign-in required)になる。api.ts は 401 しか区別していないので、403 を「もう一度ログインして」の導線にする
+   - Web の /token の HTTP 拒否の見直し
+5. 退会後の復活の窓(Go の PUT /me/profile が、退会後 5 分以内の古い JWT で行を作り直す)は、Go 側で閉じる(Go の進捗ファイルに書いてある)
+6. sign-in-link の単体テスト(テスト環境の用意から)。state の不一致、期限、使い切り、形の検証の 4 つを、純粋関数にして試す
