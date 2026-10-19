@@ -15,7 +15,8 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - CI(.github/workflows/ci.yml): lint、tsc、expo export。ネイティブのビルドは含まない。package-lock.json は --legacy-peer-deps なしで作り直し、npm ci --dry-run が通ることを確認した
 
 ## 実行中のタスク
-- ブランチ feature/auth-flow(main から)。ここまでの変更は未コミット(テンプレートの削除、CI、CLAUDE.md、このファイル)。CI は GitHub 上ではまだ動かしていない(push していない)
+- ブランチ chore/project-setup(main から)の PR。土台(SDK 58、テンプレートの削除、hooks、evaluator、CI、CLAUDE.md)だけで、認証はまだ入っていない。CI は GitHub 上ではこの PR で初めて動く
+- 認証の本実装は、この PR が main に入ってから、main から feature/auth-flow を新しく切って始める
 
 ## 既知の限界(許容している)
 - 実機は未確認(シミュレータとエミュレータのみ)
@@ -27,6 +28,6 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 ## これからのタスク(順番)
 1. Web の feature/expo-native-client の PR を出して main に入れる(コミットメッセージの「実機未確認」を直す)。Web の guard-pre.sh の any 検出も、別の変更で直す
 2. Go のマイグレーションが開発 DB に未適用(profiles が無く GET /me/profile が 500)。人が goose up を実行する
-3. 認証まわりを整えて書き直す(auth-client、config、deep-link、token。スパイクの画面は捨てる)。SecureStore の扱い、ディープリンクの URL の検証、コールドスタートを含める
+3. (main に入れたあと feature/auth-flow で)認証まわりを整えて書き直す(auth-client、config、deep-link、token。スパイクの画面は捨てる)。SecureStore の扱い、ディープリンクの URL の検証、コールドスタートを含める
 4. 画面: ログイン、プロフィール(bio の表示と更新)、ログアウト。ログイン状態で画面を出し分ける
 5. 退会(DELETE /me)と、Web の /token の HTTP 拒否の見直し
