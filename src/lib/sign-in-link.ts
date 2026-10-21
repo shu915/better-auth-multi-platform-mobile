@@ -5,8 +5,16 @@ import * as SecureStore from 'expo-secure-store';
 
 import { authClient } from '@/lib/auth-client';
 import { APP_SCHEME, STORAGE_PREFIX } from '@/lib/config';
+import {
+  addPending,
+  consumePending,
+  hasSignInLinkShape,
+  parsePendingList,
+  removePending,
+  type Pending,
+} from '@/lib/sign-in-rules';
 
-// Signing in with a magic link, in two halves that share one piece of state.
+// Signing in with a magic link, in two halves that share the list of open requests.
 //
 //  1. requestSignInLink(email) asks the web app to mail a link. It makes a random `state`, remembers
 //     it, and puts it in the callbackURL.
@@ -15,30 +23,24 @@ import { APP_SCHEME, STORAGE_PREFIX } from '@/lib/config';
 //     acceptSignInLink(url) takes the cookie out of that deep link.
 //
 // Any app or web page can open betterauthmulti://..., so a link is only accepted when its `state`
-// is the one this app just made. Otherwise someone could hand the app their own session cookie
-// (login CSRF). The state is used once, and only the newest request counts. A link with the wrong
-// state is refused but leaves the pending request alone, so it cannot be used to cancel a sign-in.
+// is one this app made and has not used yet. Otherwise someone could hand the app their own session
+// cookie (login CSRF). Each state is used once. A link with a state that is not ours is refused but
+// leaves the open requests alone, so it cannot be used to cancel a sign-in. The rules themselves
+// (and their tests) are in sign-in-rules.ts.
 // A custom scheme can still be registered by another app and read the cookie from a real link. That
 // needs Universal Links / App Links (or a one-time code exchange) and is a known limit.
 const cookieKey = `${STORAGE_PREFIX}_cookie`; // where expoClient keeps the session cookie
 const pendingKey = `${STORAGE_PREFIX}_pending_sign_in`;
 
-// The web app's magic link lives for 5 minutes by default; allow a little more.
-const PENDING_MAX_AGE_MS = 10 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 10_000;
 
-type Pending = { state: string; createdAt: number };
+async function loadPending(): Promise<Pending[]> {
+  return parsePendingList(await SecureStore.getItemAsync(pendingKey));
+}
 
-function parsePending(raw: string | null): Pending | null {
-  if (raw === null) return null;
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (typeof value !== 'object' || value === null) return null;
-    const { state, createdAt } = value as Record<string, unknown>;
-    if (typeof state !== 'string' || state === '' || typeof createdAt !== 'number') return null;
-    return { state, createdAt };
-  } catch {
-    return null;
-  }
+async function savePending(list: Pending[]): Promise<void> {
+  if (list.length === 0) await SecureStore.deleteItemAsync(pendingKey);
+  else await SecureStore.setItemAsync(pendingKey, JSON.stringify(list));
 }
 
 // `status` is the HTTP status when the web app answered (429 is "too many requests").
@@ -46,22 +48,36 @@ export type RequestResult = { ok: true } | { ok: false; reason: string; status?:
 
 export async function requestSignInLink(email: string): Promise<RequestResult> {
   const state = Crypto.randomUUID();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    await SecureStore.setItemAsync(pendingKey, JSON.stringify({ state, createdAt: Date.now() }));
+    // Remembered before the request, so a link cannot come back before it is known.
+    await savePending(addPending(await loadPending(), state, Date.now()));
     // A path starting with "/" is turned into a link into this app by expoClient.
-    const { error } = await authClient.signIn.magicLink({
-      email,
-      callbackURL: `/?state=${state}`,
-    });
+    const { error } = await authClient.signIn.magicLink(
+      { email, callbackURL: `/?state=${state}` },
+      { signal: controller.signal },
+    );
     if (!error) return { ok: true };
-    await SecureStore.deleteItemAsync(pendingKey);
+    // The web app answered with an error, so no mail carries this state: forget it, and only it.
+    // (An answer is not the same as no answer: on a timeout or a dropped connection the mail may
+    // have been sent anyway, so the state stays.)
+    if (typeof error.status === 'number' && error.status >= 400) {
+      await savePending(removePending(await loadPending(), state));
+    }
     return {
       ok: false,
       reason: error.message ?? `request failed (${error.status})`,
       status: error.status,
     };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    const timedOut = error instanceof Error && error.name === 'AbortError';
+    return {
+      ok: false,
+      reason: timedOut ? 'request timed out' : error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -71,36 +87,29 @@ export type AcceptResult =
   | { kind: 'stored' }
   | { kind: 'failed'; reason: string };
 
+const REFUSED: Record<'no-request' | 'expired' | 'mismatch', string> = {
+  'no-request': 'no sign-in was requested from this app',
+  expired: 'the request has expired',
+  mismatch: 'state does not match',
+};
+
 export async function acceptSignInLink(url: string): Promise<AcceptResult> {
-  const { scheme, hostname, path, queryParams } = Linking.parse(url);
-  const cookie = queryParams?.cookie;
+  const parsed = Linking.parse(url);
+  const cookie = parsed.queryParams?.cookie;
   if (typeof cookie !== 'string' || cookie === '') return { kind: 'ignored' };
 
-  // The redirect is exactly betterauthmulti:///?state=...&cookie=...: no host, no path.
-  if (scheme !== APP_SCHEME || hostname || (path && path !== '/')) {
+  if (!hasSignInLinkShape(parsed, APP_SCHEME)) {
     return { kind: 'rejected', reason: 'unexpected link shape' };
   }
 
   try {
-    const raw = await SecureStore.getItemAsync(pendingKey);
-    const pending = parsePending(raw);
-    if (!pending) {
-      if (raw !== null) await SecureStore.deleteItemAsync(pendingKey); // unreadable: clear it
-      return { kind: 'rejected', reason: 'no sign-in was requested from this app' };
-    }
-    if (Date.now() - pending.createdAt > PENDING_MAX_AGE_MS) {
-      await SecureStore.deleteItemAsync(pendingKey);
-      return { kind: 'rejected', reason: 'the request has expired' };
-    }
-    // A link with another state is not ours. The pending request is kept: otherwise a web page
-    // that opens betterauthmulti:///?cookie=x could cancel a sign-in that is in progress, and the
-    // real mail link would then be refused.
-    if (queryParams?.state !== pending.state) {
-      return { kind: 'rejected', reason: 'state does not match' };
-    }
+    const state = parsed.queryParams?.state;
+    const result = consumePending(await loadPending(), typeof state === 'string' ? state : '', Date.now());
+    // The open requests are saved before anything else: a state that matched is used up here, so the
+    // same link cannot be replayed, and requests that expired are dropped.
+    await savePending(result.rest);
+    if (!result.ok) return { kind: 'rejected', reason: REFUSED[result.reason] };
 
-    // Ours: used up before anything is stored, so the same link cannot be replayed.
-    await SecureStore.deleteItemAsync(pendingKey);
     const current = await SecureStore.getItemAsync(cookieKey);
     await SecureStore.setItemAsync(cookieKey, getSetCookie(cookie, current ?? undefined));
     // Tell the session hook to fetch the session again with the new cookie.
