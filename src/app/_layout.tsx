@@ -1,6 +1,6 @@
 import * as Linking from 'expo-linking';
 import { Stack } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { authClient } from '@/lib/auth-client';
@@ -24,8 +24,13 @@ export default function RootLayout() {
     });
   }, [url]);
 
-  // Until the stored session has been read, show neither screen (no flash of the sign-in form).
-  if (isPending) return null;
+  // Until the stored session has been read the first time, show neither screen (no flash of the
+  // sign-in form). Only the first time: the session reloads again later (after a sign-out or a
+  // deletion, see clearLocalSession), and emptying the screen then would remove the navigator in
+  // the middle of Stack.Protected switching screens ("REMOVE_ROUTES ... was not handled").
+  const [loaded, setLoaded] = useState(false);
+  if (!isPending && !loaded) setLoaded(true);
+  if (!loaded) return null;
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
