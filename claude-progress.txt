@@ -16,6 +16,7 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
   - +native-intent.ts: リンクの Cookie をルーターのパラメータに残さない(端末で確認済み)
   - better-auth と @better-auth/expo は Web と同じ 1.7.7 に固定
 - レビューの指摘の反映: 他人のリンク(state が違う)で待機状態を消さない、サインアウトの失敗を画面に出す、429 の文言を分ける
+- 2 回目のレビューの反映(2026-10-21): 待機状態を 1 つではなく直近 3 つの一覧にした(「送信」を連打しても、すでに届いたメールのリンクが無効にならない。Web は制限中でも成功と同じ応答でメールを送らないので、アプリの「最新だけ有効」と噛み合っていなかった)、送信のタイムアウト(10 秒。応答がなかったときは state を残し、Web がエラーを返したときだけ、その state を消す)、判断のロジックを src/lib/sign-in-rules.ts に切り出して Vitest で 19 件のテスト(state の不一致、期限、使い切り、一覧の上限、リンクの形)、CI に npm test、dependabot.yml、android.allowBackup: false(ネイティブの設定なので、次のビルドから効く。端末では未確認)
 - Web と Go の修正(レビューの S1): JWT に auth_time を載せ(Web の PR #23)、Go の DELETE /me が 5 分以内の auth_time を要求する(Go の PR #17)。盗まれたセッションから JWT を作って退会データを消せる穴を塞いだ。Web で退会まで確認済み
 - 端末での確認(iOS シミュレータと Android エミュレータ): ログイン、ログアウト、コールドスタート(アプリを終了してからリンクで起動)でログインできる。偽のリンク(state が違う)は、iOS と Android の両方で拒否される(iOS は送信の前後とも確認)
 
@@ -26,7 +27,10 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - 実機は未確認(シミュレータとエミュレータのみ)
 - 本番の Universal Links / App Links は未対応(今は betterauthmulti:// のカスタムスキームだけ)。他のアプリが同じスキームを登録すると、本物のリンクの Cookie を読める(Web の docs/design.md にも書いてある)。本番は Universal Links / App Links か、1 回限りのコード交換にする
 - Google ログインのリンク(モバイルから)は未対応
-- 画面と sign-in-link のテストはない。evaluator と CI は、端末での動作とネイティブのビルドを確認できない
+- 画面のテストはない(判断のロジックは sign-in-rules.ts のテストで守っている)。evaluator と CI は、端末での動作とネイティブのビルドを確認できない
+- 未使用の依存が残っている(@expo/ui、expo-device、expo-network、expo-glass-effect、expo-symbols、expo-constants など。雛形の名残に見える)。ネイティブ依存の削除は、再ビルドと両 OS の確認が要るので、別の PR にする(app.json の plugins が使うもの: expo-font、expo-image、expo-status-bar、expo-web-browser、expo-splash-screen は、plugin ごと見直す)
+- ログイン中に不一致のリンクが開かれても、「Sign-in failed」のアラートが出る(見た目だけ。安全には影響しない)
+- app.json の name と slug が雛形のまま
 - 最新の送信だけが有効(連続で送ると、前のリンクは使えなくなる)
 - **本番の前に必須(レビューの S3)**: カスタムスキーム(betterauthmulti://)は他のアプリも登録できる。さらに Web の本番の trustedOrigins が無条件にこのスキームを含むので、モバイルを使わない人のメール宛てにも、攻撃者が callbackURL 付きのリンクを送らせられる。本番に出す前に、1 回限りのコード交換(Cookie を URL に載せない。短命のコードを、アプリが verifier 付きで引き換える)にする。Universal Links / App Links にする場合も、セッションを URL に載せない形にする
 - app.json の com.anonymous.mobile は雛形のまま。本番の前に変える(ストア審査と App Links の設定で詰まる)
@@ -42,4 +46,4 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
    - ログインから 5 分を過ぎると 403(recent sign-in required)になる。api.ts は 401 しか区別していないので、403 を「もう一度ログインして」の導線にする
    - Web の /token の HTTP 拒否の見直し
 5. 退会後の復活の窓(Go の PUT /me/profile が、退会後 5 分以内の古い JWT で行を作り直す)は、Go 側で閉じる(Go の進捗ファイルに書いてある)
-6. sign-in-link の単体テスト(テスト環境の用意から)。state の不一致、期限、使い切り、形の検証の 4 つを、純粋関数にして試す
+6. 未使用の依存を外す(上の限界を参照)
