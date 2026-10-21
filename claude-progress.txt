@@ -1,49 +1,39 @@
 claude-progress.txt (mobile)
-最終更新: 2026-10-19
+最終更新: 2026-10-21
 新しいセッションは、最初にこのファイルと CLAUDE.md を読む。作業の区切りごとに更新する。
 Web 側の認証のルールは Web の docs/design.md。ここには状況だけを書く。
 
-## 完了したタスク
-- スパイク(使い捨て。ブランチ spike/auth-flow、Web 側は spike/expo-auth。どちらも push 済み、main には入っていない)
-  - 確かめたこと: マジックリンク → ディープリンクでアプリに戻る → セッションを SecureStore に保存 → GET /api/auth/token に Bearer で JWT → Go の GET /me。iOS と Android の両方で /me まで通った
-  - 分かったこと: Android エミュレータは localhost が自分自身(Mac は 10.0.2.2、メールのリンクは adb reverse tcp:3000 tcp:3000)。iOS 27 のシミュレータは scene 非対応のアプリを落とす(SDK 58 のテンプレートで直る)。Android 16 以降はローカルネットワークの許可を聞かれる(拒否すると接続できない)。CocoaPods が要る
-- 土台(PR #1、main に入った): Expo SDK 58、テンプレートの削除、hooks と evaluator、CI(lint、tsc、expo export)、CLAUDE.md、このファイル
-- Web 側の Expo 対応(feature/expo-native-client。push 済みで CI を実行した。main に入ったかはこのファイルでは未確認)
-- Web の guard-pre.sh の any 検出を直した(Web の PR #21、main に入った)
-- 認証(ブランチ feature/auth-flow。main から)
-  - src/lib: config(接続先。リリースビルドは https の URL が必須)、auth-client、sign-in-link(送信時に state を作って保存し、戻ってきたリンクの state と照合。形の検証、使い切り、10 分の期限)、token(JWT を毎回取る。保存しない)、api(GET と PUT の /me/profile。画面はまだ使っていない)
-  - 画面: _layout(ログイン状態で sign-in と index を出し分け。ディープリンクの受け取り)、sign-in(メールの入力と送信)、index(最小のホーム。メールの表示とログアウト)
-  - +native-intent.ts: リンクの Cookie をルーターのパラメータに残さない(端末で確認済み)
-  - better-auth と @better-auth/expo は Web と同じ 1.7.7 に固定
-- レビューの指摘の反映: 他人のリンク(state が違う)で待機状態を消さない、サインアウトの失敗を画面に出す、429 の文言を分ける
-- 2 回目のレビューの反映(2026-10-21): 待機状態を 1 つではなく直近 3 つの一覧にした(「送信」を連打しても、すでに届いたメールのリンクが無効にならない。Web は制限中でも成功と同じ応答でメールを送らないので、アプリの「最新だけ有効」と噛み合っていなかった)、送信のタイムアウト(10 秒。応答がなかったときは state を残し、Web がエラーを返したときだけ、その state を消す)、判断のロジックを src/lib/sign-in-rules.ts に切り出して Vitest で 19 件のテスト(state の不一致、期限、使い切り、一覧の上限、リンクの形)、CI に npm test、dependabot.yml、android.allowBackup: false(ネイティブの設定なので、次のビルドから効く。端末では未確認)
-- Web と Go の修正(レビューの S1): JWT に auth_time を載せ(Web の PR #23)、Go の DELETE /me が 5 分以内の auth_time を要求する(Go の PR #17)。盗まれたセッションから JWT を作って退会データを消せる穴を塞いだ。Web で退会まで確認済み
-- 端末での確認(iOS シミュレータと Android エミュレータ): ログイン、ログアウト、コールドスタート(アプリを終了してからリンクで起動)でログインできる。偽のリンク(state が違う)は、iOS と Android の両方で拒否される(iOS は送信の前後とも確認)
+## 完了(main に入っている)
+- 土台(PR #1): Expo SDK 58、hooks と evaluator、CI(lint、tsc、npm test、expo export)、Dependabot、CLAUDE.md
+- 認証(PR #2): マジックリンク → ディープリンク → セッションを SecureStore に保存。ログイン CSRF の防御(state を直近 3 つ保持、使い切り、10 分、リンクの形の検証。判断は src/lib/sign-in-rules.ts でテスト)。ログアウト。Web と同じ better-auth 1.7.7 に固定。iOS と Android で、ログイン、ログアウト、コールドスタート、偽リンクの拒否を確認済み
+- プロフィール(PR #4): 閲覧が既定で、Edit でフォーム。name/email は Web のセッション(Neon)、bio は Go。name は Web の PATCH /api/mobile/profile、bio は Go に直接。401 はサインアウト(失敗したら端末のセッションを消す: src/lib/local-session.ts)。取得失敗は Reload。iOS と Android で確認済み
+- Web 側: Expo 対応、auth_time(PR #23)、名前の更新(PR #24)、退会(PR #25)。Go 側: DELETE /me が 5 分以内の auth_time を要求(PR #17)
 
-## 実行中のタスク
-- feature/profile-bio(PR 2 本目。PR #2 はマージ済み): ホームにプロフィール(src/components/profile-bio.tsx)。閲覧が既定で、Edit でフォームになる。name と email は Web のセッション(Neon)、bio は Go。name は Web の PATCH /api/mobile/profile(src/lib/profile-name.ts)、bio は Go に直接。変わった項目だけ、name を先に送る。取得中/失敗(再読み込み)/成功、1000 文字、二重送信の防止、422 の文言、401 はサインアウト(サインアウトも失敗したら端末のセッションを消す: src/lib/local-session.ts)。api.ts、token.ts、profile-name.ts のテストを追加(Vitest 46 件)。evaluator は合格。端末で確認済み(iOS と Android): 取得、保存、名前の編集、名前を空にしたときの 422 の文言、API 停止中の読み込み失敗と再読み込み、API 停止中の保存の失敗と再保存、長い bio でのキーボードの重なり(なし)。iOS: Web のセッションを全部消すとログイン画面に戻る。未: Android での 401 の復帰、bio の 422 の文言(画面からは起こしにくい)
-- **デプロイの順序**: モバイルの名前の更新は、Web の PR #24(PATCH /api/mobile/profile)が先にマージ・デプロイされていることが前提(先にモバイルを出すと 404 になる)
+## 実行中
+- feature/delete-account(PR 3 本目、未コミット): ホーム最下部に退会(Delete account → メールの再入力 → Web の DELETE /api/mobile/account)。成功したら端末のセッションを消してログイン画面へ。422=メール違い、403=ログインが古い、401=サインアウト、その他=再試行。_layout.tsx は、セッションの読み込み中に画面を空にするのを「最初の 1 回だけ」にした(退会時の REMOVE_ROUTES 警告の対策)。Vitest 62 件、evaluator 合格。iOS で退会し、Neon の user と Go の profiles が消えることまで確認済み
+  - 未確認: 403(ログインから 5 分近く後の退会)、422 の文言、通知メールの到達、Android での退会
+  - 順序: Web の PR #25 は main に入った。デプロイしてから、このモバイルを出す
 
 ## 既知の限界(許容している)
 - 実機は未確認(シミュレータとエミュレータのみ)
-- 本番の Universal Links / App Links は未対応(今は betterauthmulti:// のカスタムスキームだけ)。他のアプリが同じスキームを登録すると、本物のリンクの Cookie を読める(Web の docs/design.md にも書いてある)。本番は Universal Links / App Links か、1 回限りのコード交換にする
+- 画面のテストはない(判断のロジックだけテスト)。evaluator と CI は、端末での動作とネイティブのビルドを確認できない
 - Google ログインのリンク(モバイルから)は未対応
-- 画面のテストはない(判断のロジックは sign-in-rules.ts のテストで守っている)。evaluator と CI は、端末での動作とネイティブのビルドを確認できない
-- 未使用の依存が残っている(@expo/ui、expo-device、expo-network、expo-glass-effect、expo-symbols、expo-constants など。雛形の名残に見える)。ネイティブ依存の削除は、再ビルドと両 OS の確認が要るので、別の PR にする(app.json の plugins が使うもの: expo-font、expo-image、expo-status-bar、expo-web-browser、expo-splash-screen は、plugin ごと見直す)
-- ログイン中に不一致のリンクが開かれても、「Sign-in failed」のアラートが出る(見た目だけ。安全には影響しない)
-- app.json の name と slug が雛形のまま
-- 最新の送信だけが有効(連続で送ると、前のリンクは使えなくなる)
-- **本番の前に必須(レビューの S3)**: カスタムスキーム(betterauthmulti://)は他のアプリも登録できる。さらに Web の本番の trustedOrigins が無条件にこのスキームを含むので、モバイルを使わない人のメール宛てにも、攻撃者が callbackURL 付きのリンクを送らせられる。本番に出す前に、1 回限りのコード交換(Cookie を URL に載せない。短命のコードを、アプリが verifier 付きで引き換える)にする。Universal Links / App Links にする場合も、セッションを URL に載せない形にする
-- app.json の com.anonymous.mobile は雛形のまま。本番の前に変える(ストア審査と App Links の設定で詰まる)
-- APP_SCHEME と STORAGE_PREFIX が config.ts と app.json に二重定義(コメントで同期を促しているだけ)。app.config.ts から読むほうが安全
-- 開発中は、Android エミュレータでマジックリンクを開くのに adb reverse tcp:3000 tcp:3000 が要る(エミュレータの再起動で消える)
+- 未使用の依存が残っている(@expo/ui、expo-device、expo-network、expo-glass-effect、expo-symbols、expo-constants など)。ネイティブ依存の削除は再ビルドと両 OS の確認が要るので別の PR(app.json の plugins が使うものは plugin ごと見直す)
+- ログイン中に不一致のリンクが開かれても「Sign-in failed」のアラートが出る(見た目だけ)
+- 開発中、Android エミュレータでマジックリンクを開くには adb reverse tcp:3000 tcp:3000 が要る(再起動で消える)。adb が見つからないときは ANDROID_HOME と PATH(platform-tools)を通す
+- app.json の name と slug が雛形のまま。APP_SCHEME と STORAGE_PREFIX が config.ts と app.json に二重定義
+- ローカルでセッションを消すとき、大きな session_data の分割された断片が Keychain に残ることがある(読めず、次の保存で置き換わる)
 
-## これからのタスク(順番)
-1. feature/profile-bio の端末確認と PR(Web の PR #24 のデプロイが先)
-2. profile-bio.tsx の保存の判断(401、名前だけ成功、など)を、純粋関数(profile-bio-rules.ts)に切り出してテストする
-3. 退会。前提が 2 つある
-   - Go の DELETE /me は Go のデータしか消さない。Web の /delete-user は HTTP では SERVER_ONLY なので、モバイルはユーザー本体を消せない。「Go のデータ削除 → ユーザー削除」は、Web に、新しいログインの確認と通知メール付きの専用エンドポイントを置いて、そこでやる
-   - ログインから 5 分を過ぎると 403(recent sign-in required)になる。api.ts は 401 しか区別していないので、403 を「もう一度ログインして」の導線にする
-   - Web の /token の HTTP 拒否の見直し
-4. 退会後の復活の窓(Go の PUT /me/profile が、退会後 5 分以内の古い JWT で行を作り直す)は、Go 側で閉じる(Go の進捗ファイルに書いてある)
-5. 未使用の依存を外す(上の限界を参照)
+## 本番の前に必須
+- **S3**: カスタムスキーム(betterauthmulti://)は他のアプリも登録できる。さらに Web の本番の trustedOrigins が無条件にこのスキームを含むので、モバイルを使わない人のメール宛てにも、攻撃者が callbackURL 付きのリンクを送らせられる。1 回限りのコード交換(Cookie を URL に載せない。短命のコードを、アプリが verifier 付きで引き換える)か、セッションを URL に載せない Universal Links / App Links にする
+- **退会後の復活の窓**: Go の PUT /me/profile が、退会後 5 分以内の古い JWT で行を作り直せる。Go 側で閉じる(Go の進捗ファイル参照)。モバイルの退会を出す前に
+- app.json の com.anonymous.mobile を変える(ストア審査と App Links の設定で詰まる)
+- 本番ビルドは EXPO_PUBLIC_WEB_URL と EXPO_PUBLIC_API_URL(https)が必須。EXPO_PUBLIC_ の値はアプリに入って誰でも読めるので、秘密は入れない
+
+## これから(順番)
+1. feature/delete-account の端末確認(上の未確認)、コミット、PR
+2. Go: 退会後の復活の窓を閉じる
+3. profile-bio.tsx と delete-account.tsx の保存・削除の判断を純粋関数に切り出してテストする
+4. dependabot.yml: Expo SDK が決める版(expo、react、react-native、typescript、eslint)、vitest のメジャー、better-auth 系を無視する(Dependabot の PR #3 は閉じる)
+5. 未使用の依存を外す
+6. 本番の前の必須項目(上)

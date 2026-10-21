@@ -20,15 +20,24 @@ type Props = {
   email: string;
   // The session or the JWT is no longer valid (a 401): the parent signs the user out.
   onUnauthorized: () => void;
+  // The account is being deleted: nothing may be saved (a save that lands after the Go data is
+  // deleted would create the profile row again).
+  disabled?: boolean;
+  // Tells the parent while a save is in flight, so the account cannot be deleted meanwhile.
+  onSavingChange?: (saving: boolean) => void;
 };
 
 // Shows the bio from the Go API and lets the user change it. A failure here stays inside this
 // component: the rest of the screen (email, sign out) keeps working.
-export function ProfileBio({ name, email, onUnauthorized }: Props) {
+export function ProfileBio({ name, email, onUnauthorized, disabled = false, onSavingChange }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [draft, setDraft] = useState('');
   const [nameDraft, setNameDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    onSavingChange?.(saving);
+  }, [saving, onSavingChange]);
+  const locked = saving || disabled;
   const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
 
@@ -88,7 +97,7 @@ export function ProfileBio({ name, email, onUnauthorized }: Props) {
   };
 
   const save = async () => {
-    if (savingRef.current || load.kind !== 'ready') return;
+    if (disabled || savingRef.current || load.kind !== 'ready') return;
     savingRef.current = true;
     setSaving(true);
     setMessage(null);
@@ -193,7 +202,8 @@ export function ProfileBio({ name, email, onUnauthorized }: Props) {
           {load.saved === '' ? 'No bio yet.' : load.saved}
         </Text>
         <Pressable
-          style={styles.button}
+          style={[styles.button, disabled && styles.buttonDisabled]}
+          disabled={disabled}
           onPress={() => {
             setMessage(null);
             setNameDraft(name);
@@ -222,7 +232,7 @@ export function ProfileBio({ name, email, onUnauthorized }: Props) {
           setMessage(null);
         }}
         maxLength={NAME_MAX}
-        editable={!saving}
+        editable={!locked}
         autoCapitalize="words"
         accessibilityLabel="Name"
       />
@@ -238,7 +248,7 @@ export function ProfileBio({ name, email, onUnauthorized }: Props) {
         }}
         maxLength={BIO_MAX}
         multiline
-        editable={!saving}
+        editable={!locked}
         placeholder="Write something about yourself"
         accessibilityLabel="Bio"
       />
@@ -246,17 +256,17 @@ export function ProfileBio({ name, email, onUnauthorized }: Props) {
         {draft.length} / {BIO_MAX}
       </Text>
       <Pressable
-        style={[styles.button, (saving || unchanged) && styles.buttonDisabled]}
+        style={[styles.button, (locked || unchanged) && styles.buttonDisabled]}
         onPress={() => void save()}
-        disabled={saving || unchanged}
+        disabled={locked || unchanged}
         accessibilityRole="button"
       >
         <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Save'}</Text>
       </Pressable>
       <Pressable
-        style={[styles.button, saving && styles.buttonDisabled]}
+        style={[styles.button, locked && styles.buttonDisabled]}
         onPress={cancelEdit}
-        disabled={saving}
+        disabled={locked}
         accessibilityRole="button"
       >
         <Text style={styles.buttonText}>Cancel</Text>
