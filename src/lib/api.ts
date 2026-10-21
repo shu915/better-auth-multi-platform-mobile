@@ -14,7 +14,8 @@ export type ApiResult<T> =
 
 async function request(path: string, init: { method: string; body?: unknown }) {
   const jwt = await fetchJwt();
-  if (!jwt.ok) return { ok: false, reason: jwt.reason } as const;
+  // A 401 from the web app's /token (the session is gone) is passed on as a 401 like the API's own.
+  if (!jwt.ok) return { ok: false, reason: jwt.reason, status: jwt.status } as const;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -29,7 +30,9 @@ async function request(path: string, init: { method: string; body?: unknown }) {
       credentials: 'omit',
       signal: controller.signal,
     });
-    if (!res.ok) return { ok: false, reason: `request failed (${res.status})`, status: res.status } as const;
+    if (!res.ok) {
+      return { ok: false, reason: `request failed (${res.status})`, status: res.status } as const;
+    }
     const json: unknown = await res.json().catch(() => null);
     return { ok: true, json } as const;
   } catch (error) {
