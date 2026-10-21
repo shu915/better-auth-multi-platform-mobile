@@ -27,7 +27,10 @@ Expo SDK 58 / React Native / Expo Router / TypeScript / Better Auth のクライ
 ## コマンド
 - `npm start`: 開発サーバー(Metro)。JS/TS の変更は保存で反映される(再ビルド不要)
 - `npm run ios` / `npm run android`: ネイティブをビルドして起動。初回と、ネイティブ側(依存、`app.json` のプラグインやスキーム)を変えたときだけ要る。iOS は初回に時間がかかる
+- `npm test`: Vitest(`src/**/*.test.ts`)。React Native に依存しない判断のロジック(`src/lib/*-rules.ts`)だけを試す。画面のテストは入れない方針。ログインのリンクを受け取る規則(`sign-in-rules.ts`)は、ログイン CSRF を防ぐ唯一の砦なので、変えたら必ずテストを足す
 - `npm run lint`: lint / 型チェック: `npx tsc --noEmit` / JS のバンドルの確認: `npx expo export --platform ios --platform android --output-dir dist`
+- `better-auth` と `@better-auth/expo` は Web と同じ版に固定している(`^` なし)。上げるときは Web と同時に(Dependabot の PR も、Web と合わせてから取り込む)。Expo の SDK のパッケージは `npx expo install --fix` でそろえる
+- Vitest は 3.x。5.x は rolldown を使い、macOS で `npm install` すると `package-lock.json` から `@rolldown/binding-*` が消えて、Linux の CI が落ちる(`grep -c '"node_modules/@rolldown/binding-' package-lock.json` が 0 のとき)
 - 依存を足したあと、`package-lock.json` を `--legacy-peer-deps` で作らない(peer 依存がロックに入らず、CI の `npm ci` が落ちる)。確認は `npm ci --dry-run`
 - `npx expo-doctor`: 依存と設定の診断 / `npx expo install --fix`: 版のずれを直す
 - iOS のビルドが `Podfile.lock` のずれで落ちたら `cd ios && pod install`(CocoaPods が要る)
@@ -47,7 +50,7 @@ Expo SDK 58 / React Native / Expo Router / TypeScript / Better Auth のクライ
 4. 「合格」で終了し、結果を報告する。5 周で合格しなければ、止めて残りの指摘をそのまま報告する(無理に通さない)。同じ指摘が再発したら、上限を待たずに止める
 5. 報告には、検証していない範囲と、人間向けの確認手順を必ず書く。人間の返事は待たない
    - シミュレータ、エミュレータ、実機での動作と、ネイティブのビルド(`npm run ios` / `android`)は、このループでは確認できない。画面やディープリンクを変えたら、必ず未検証として残す
-   - 画面のテストはまだない
+   - 画面のテストはない(ロジックは `npm test`)
 
 人間の確認(iOS と Android での動作確認、最終レビュー)はループの外。人間が問題を見つけたら、その内容を新しい goal として回す。goal を書くときは、完了条件(機械で確認できるもの)と、ループの外(人間の作業)を分ける。
 

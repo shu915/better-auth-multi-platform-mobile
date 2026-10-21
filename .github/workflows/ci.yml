@@ -20,6 +20,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npx tsc --noEmit
+      - run: npm test
       # Bundles the JavaScript for both platforms. It does not build the native apps (that needs
       # Xcode / the Android SDK), so native build errors and behaviour on a device are not covered.
       - run: npx expo export --platform ios --platform android --output-dir dist
