@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DeleteAccount } from '@/components/delete-account';
 import { ProfileBio } from '@/components/profile-bio';
 import { authClient } from '@/lib/auth-client';
 import { clearLocalSession } from '@/lib/local-session';
@@ -10,6 +11,13 @@ export default function HomeScreen() {
   const { data: session } = authClient.useSession();
   const [signingOut, setSigningOut] = useState(false);
   const [failed, setFailed] = useState(false);
+  // While the account is being deleted, signing out and saving the profile are off; while the
+  // profile is being saved, deleting is off (see DeleteAccount and ProfileBio).
+  const [deleting, setDeleting] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  // Deleted, but this screen is still up (the phone could not forget the session): the profile
+  // stays locked, because a save would create the Go row again; signing out stays possible.
+  const [deleted, setDeleted] = useState(false);
 
   // Signing out clears the stored session; the root layout then shows the sign-in screen. If it
   // fails (offline, the web app is down) the session is still there, so say so instead of
@@ -40,19 +48,25 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <Text style={styles.title}>Profile</Text>
 
         <ProfileBio
           name={session?.user.name ?? ''}
           email={session?.user.email ?? ''}
           onUnauthorized={() => void signOut(true)}
+          disabled={deleting || deleted}
+          onSavingChange={setSavingProfile}
         />
 
         <Pressable
-          style={[styles.button, signingOut && styles.buttonDisabled]}
+          style={[styles.button, (signingOut || deleting) && styles.buttonDisabled]}
           onPress={() => void signOut()}
-          disabled={signingOut}
+          disabled={signingOut || deleting}
           accessibilityRole="button"
         >
           <Text style={styles.buttonText}>{signingOut ? 'Signing out…' : 'Sign out'}</Text>
@@ -60,9 +74,18 @@ export default function HomeScreen() {
 
         {failed && (
           <Text style={styles.error}>
-            Could not sign out. You are still signed in. Check the connection and try again.
+            {deleted
+              ? 'Your account is deleted. Close and reopen the app to finish signing out.'
+              : 'Could not sign out. You are still signed in. Check the connection and try again.'}
           </Text>
         )}
+
+        <DeleteAccount
+          onUnauthorized={() => void signOut(true)}
+          onDeletingChange={setDeleting}
+          onDeleted={() => setDeleted(true)}
+          disabled={savingProfile || signingOut || deleted}
+        />
       </ScrollView>
     </SafeAreaView>
   );
