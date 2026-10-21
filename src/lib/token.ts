@@ -14,10 +14,17 @@ import { WEB_URL } from '@/lib/config';
 const SESSION_TOKEN = /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/;
 const TIMEOUT_MS = 10_000;
 
-export type JwtResult = { ok: true; token: string } | { ok: false; reason: string };
+// `status` is set when the web app answered. 401 there means the session is no longer valid.
+export type JwtResult = { ok: true; token: string } | { ok: false; reason: string; status?: number };
+
+// The signed session token from the stored cookie, to send as "Authorization: Bearer ..." (and
+// never as a Cookie header: the web app refuses a bearer token that comes with a Cookie).
+export async function getSessionToken(): Promise<string | undefined> {
+  return SESSION_TOKEN.exec(await authClient.getCookie())?.[1];
+}
 
 export async function fetchJwt(): Promise<JwtResult> {
-  const sessionToken = SESSION_TOKEN.exec(await authClient.getCookie())?.[1];
+  const sessionToken = await getSessionToken();
   if (!sessionToken) return { ok: false, reason: 'not signed in' };
 
   const controller = new AbortController();
@@ -33,7 +40,7 @@ export async function fetchJwt(): Promise<JwtResult> {
       typeof body === 'object' && body !== null && 'token' in body ? body.token : undefined;
     if (res.ok && typeof token === 'string' && token !== '') return { ok: true, token };
     // The body is not logged or returned: it may hold a token or a message meant for the server.
-    return { ok: false, reason: `token request failed (${res.status})` };
+    return { ok: false, reason: `token request failed (${res.status})`, status: res.status };
   } catch (error) {
     const timedOut = error instanceof Error && error.name === 'AbortError';
     return { ok: false, reason: timedOut ? 'token request timed out' : 'token request failed' };

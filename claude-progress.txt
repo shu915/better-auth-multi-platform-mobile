@@ -21,7 +21,8 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - 端末での確認(iOS シミュレータと Android エミュレータ): ログイン、ログアウト、コールドスタート(アプリを終了してからリンクで起動)でログインできる。偽のリンク(state が違う)は、iOS と Android の両方で拒否される(iOS は送信の前後とも確認)
 
 ## 実行中のタスク
-- feature/auth-flow の PR(1 本目: ログインとログアウトまで)。出す前に evaluator を通す。bio の表示と更新は 2 本目
+- feature/profile-bio(PR 2 本目。PR #2 はマージ済み): ホームにプロフィール(src/components/profile-bio.tsx)。閲覧が既定で、Edit でフォームになる。name と email は Web のセッション(Neon)、bio は Go。name は Web の PATCH /api/mobile/profile(src/lib/profile-name.ts)、bio は Go に直接。変わった項目だけ、name を先に送る。取得中/失敗(再読み込み)/成功、1000 文字、二重送信の防止、422 の文言、401 はサインアウト(サインアウトも失敗したら端末のセッションを消す: src/lib/local-session.ts)。api.ts、token.ts、profile-name.ts のテストを追加(Vitest 46 件)。evaluator は合格。端末で確認済み(iOS と Android): 取得、保存、名前の編集、名前を空にしたときの 422 の文言、API 停止中の読み込み失敗と再読み込み、API 停止中の保存の失敗と再保存、長い bio でのキーボードの重なり(なし)。iOS: Web のセッションを全部消すとログイン画面に戻る。未: Android での 401 の復帰、bio の 422 の文言(画面からは起こしにくい)
+- **デプロイの順序**: モバイルの名前の更新は、Web の PR #24(PATCH /api/mobile/profile)が先にマージ・デプロイされていることが前提(先にモバイルを出すと 404 になる)
 
 ## 既知の限界(許容している)
 - 実機は未確認(シミュレータとエミュレータのみ)
@@ -38,12 +39,11 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - 開発中は、Android エミュレータでマジックリンクを開くのに adb reverse tcp:3000 tcp:3000 が要る(エミュレータの再起動で消える)
 
 ## これからのタスク(順番)
-1. feature/auth-flow の PR を出す(evaluator を通してから)
-2. Go のマイグレーションが開発 DB に未適用(profiles が無く GET /me/profile が 500)。人が goose up を実行する
-3. 画面: プロフィール(bio の表示と更新)。api.ts を使う。取得に失敗したときは画面を壊さず、再読み込みを出す。401 はログアウト扱い
-4. 退会。前提が 2 つある
+1. feature/profile-bio の端末確認と PR(Web の PR #24 のデプロイが先)
+2. profile-bio.tsx の保存の判断(401、名前だけ成功、など)を、純粋関数(profile-bio-rules.ts)に切り出してテストする
+3. 退会。前提が 2 つある
    - Go の DELETE /me は Go のデータしか消さない。Web の /delete-user は HTTP では SERVER_ONLY なので、モバイルはユーザー本体を消せない。「Go のデータ削除 → ユーザー削除」は、Web に、新しいログインの確認と通知メール付きの専用エンドポイントを置いて、そこでやる
    - ログインから 5 分を過ぎると 403(recent sign-in required)になる。api.ts は 401 しか区別していないので、403 を「もう一度ログインして」の導線にする
    - Web の /token の HTTP 拒否の見直し
-5. 退会後の復活の窓(Go の PUT /me/profile が、退会後 5 分以内の古い JWT で行を作り直す)は、Go 側で閉じる(Go の進捗ファイルに書いてある)
-6. 未使用の依存を外す(上の限界を参照)
+4. 退会後の復活の窓(Go の PUT /me/profile が、退会後 5 分以内の古い JWT で行を作り直す)は、Go 側で閉じる(Go の進捗ファイルに書いてある)
+5. 未使用の依存を外す(上の限界を参照)
