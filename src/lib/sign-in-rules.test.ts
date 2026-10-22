@@ -211,36 +211,50 @@ describe('judgeLink', () => {
     expect(link({ state: 's1', code: 'c1' })).toEqual({ kind: 'code', code: 'c1', state: 's1' });
   });
 
-  it('refuses a link with a session cookie in it, and never reads a code from it', () => {
+  it('refuses a link of ours (it has a state) that carries a session cookie, and never reads a code from it', () => {
     expect(link({ state: 's1', code: 'c1', cookie: 'better-auth.session_token=x' })).toEqual({
       kind: 'rejected',
       reason: 'a link with a session in it is not accepted',
     });
-    expect(link({ cookie: 'x' }).kind).toBe('rejected');
+    expect(link({ state: 's1', cookie: 'x' }).kind).toBe('rejected');
   });
 
-  it('refuses a link the web app turned down (an error)', () => {
+  it('refuses a link of ours that the web app turned down (an error)', () => {
     expect(link({ state: 's1', error: 'missing_challenge' }).kind).toBe('rejected');
-    expect(link({ error: 'INVALID_TOKEN' }).kind).toBe('rejected');
     // An error wins even when a code is there too.
     expect(link({ state: 's1', code: 'c1', error: 'x' }).kind).toBe('rejected');
   });
 
-  it('ignores a link with no code, or an empty or odd one', () => {
-    for (const params of [null, {}, { state: 's1' }, { code: '' }, { code: 5 }, { code: ['a', 'b'] }]) {
+  it('ignores a link with no state: it is not for a sign-in, whatever it carries', () => {
+    // The browser coming back from linking Google, or a foreign link: no "sign-in failed" message.
+    for (const params of [
+      null,
+      {},
+      { error: 'account_already_linked_to_different_user' },
+      { error: 'x', error_description: 'y' },
+      { cookie: 'x' },
+      { code: 'c1' },
+      { state: '', error: 'x' },
+      { state: ['a', 'b'], error: 'x' },
+    ]) {
       expect(link(params)).toEqual({ kind: 'ignored' });
     }
   });
 
-  it('refuses a link of the wrong shape, even with a code', () => {
-    expect(judgeLink({ scheme: 'https', hostname: '', path: '', queryParams: { code: 'c' } }, scheme).kind).toBe('rejected');
-    expect(link({ code: 'c' }, { hostname: 'evil.test' }).kind).toBe('rejected');
-    expect(link({ code: 'c' }, { path: 'admin' }).kind).toBe('rejected');
+  it('ignores a link of ours with no code and no error', () => {
+    for (const params of [{ state: 's1' }, { state: 's1', code: '' }, { state: 's1', code: 5 }, { state: 's1', code: ['a', 'b'] }]) {
+      expect(link(params)).toEqual({ kind: 'ignored' });
+    }
   });
 
-  it('gives an empty state when there is none, so the check against the open requests fails', () => {
-    expect(link({ code: 'c1' })).toEqual({ kind: 'code', code: 'c1', state: '' });
-    expect(link({ code: 'c1', state: ['a', 'b'] })).toEqual({ kind: 'code', code: 'c1', state: '' });
+  it('refuses a link of ours of the wrong shape, even with a code', () => {
+    expect(judgeLink({ scheme: 'https', hostname: '', path: '', queryParams: { state: 's', code: 'c' } }, scheme).kind).toBe('rejected');
+    expect(link({ state: 's', code: 'c' }, { hostname: 'evil.test' }).kind).toBe('rejected');
+    expect(link({ state: 's', code: 'c' }, { path: 'admin' }).kind).toBe('rejected');
+  });
+
+  it('checks the state against the open requests afterwards, so a made-up state still fails', () => {
+    expect(consumePending([open('a')], 'made-up', NOW).ok).toBe(false);
     expect(consumePending([open('a')], '', NOW).ok).toBe(false);
   });
 });
