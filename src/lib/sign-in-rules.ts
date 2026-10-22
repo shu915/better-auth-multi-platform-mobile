@@ -108,6 +108,7 @@ export type LinkVerdict =
 
 // What to make of a link that opened the app, before anything is read from storage or sent anywhere.
 // The order matters and is tested:
+//  0. A link with no `state` is not for a sign-in at all: ignored (see below).
 //  1. A link with a session in it (`cookie`) is refused. The session is never taken from a link; only
 //     an older web app, or someone else's link, puts one there.
 //  2. A link with an `error` is refused: the web app turned the sign-in down (no challenge, say).
@@ -124,6 +125,12 @@ export function judgeLink(
   appScheme: string,
 ): LinkVerdict {
   const params = parsed.queryParams;
+  const state = params?.state;
+  // A link that belongs to a sign-in this app asked for carries the `state` it put in the callback.
+  // Other links that open the app (the browser coming back from linking Google, say) have none, and
+  // must not set off a "sign-in failed" message: they are ignored, whatever else they carry.
+  if (typeof state !== 'string' || state === '') return { kind: 'ignored' };
+
   if (typeof params?.cookie === 'string') {
     return { kind: 'rejected', reason: 'a link with a session in it is not accepted' };
   }
@@ -135,6 +142,5 @@ export function judgeLink(
   if (!hasSignInLinkShape(parsed, appScheme)) {
     return { kind: 'rejected', reason: 'unexpected link shape' };
   }
-  const state = params?.state;
-  return { kind: 'code', code, state: typeof state === 'string' ? state : '' };
+  return { kind: 'code', code, state };
 }
