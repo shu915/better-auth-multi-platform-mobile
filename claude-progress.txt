@@ -8,15 +8,17 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - 認証(PR #2): マジックリンク → ディープリンク → セッションを SecureStore に保存。ログイン CSRF の防御(state を直近 3 つ保持、使い切り、10 分、リンクの形の検証。判断は src/lib/sign-in-rules.ts でテスト)。ログアウト。Web と同じ better-auth 1.7.7 に固定。iOS と Android で、ログイン、ログアウト、コールドスタート、偽リンクの拒否を確認済み
 - プロフィール(PR #4): 閲覧が既定で、Edit でフォーム。name/email は Web のセッション(Neon)、bio は Go。name は Web の PATCH /api/mobile/profile、bio は Go に直接。401 はサインアウト(失敗したら端末のセッションを消す: src/lib/local-session.ts)。取得失敗は Reload。iOS と Android で確認済み
 - 退会(PR #5): ホーム最下部の Delete account → メールの再入力 → Web の DELETE /api/mobile/account。成功したら端末のセッションを消してログイン画面へ。422=メール違い、403=ログインが古い、401=サインアウト、その他=再試行。退会中は Sign out と bio の保存を無効にする。_layout.tsx は、セッションの読み込み中に画面を空にするのを「最初の 1 回だけ」にした(REMOVE_ROUTES 警告の対策)。iOS で退会し、Neon の user と Go の profiles が消えることまで確認済み
+- 整理(PR #6): Dependabot の設定(Expo SDK が決める版と Vitest のメジャーを無視。better-auth 系は無視しない=Web と一緒に上げる合図)、保存と退会の判断を純粋関数に切り出し(profile-rules.ts、delete-rules.ts)、使っていない依存の削除、編集中は退会フォームを隠す
 - Web 側: Expo 対応、auth_time(PR #23)、名前の更新(PR #24)、退会(PR #25)。Go 側: DELETE /me が 5 分以内の auth_time を要求(PR #17)、退会後の復活の窓を閉じた(PR #18。deleted_users、10 分は PUT /me/profile が 410)
+- 退会の確認: iOS と Android で、退会の成功、403 の案内と入り直したあとの成功、違うメールで消せないこと(422)、通知メール(開発中は Web のターミナルに出る。本番は Web の Resend で、モバイルに設定は要らない)。未確認: 本番での実際のメールの到達
 
 ## 実行中
-- chore/deps-and-rules(未コミット)
-  1. dependabot.yml: Expo SDK が決める版、better-auth 系、vitest のメジャーを無視する(最初の月次の PR #3 は、TypeScript、ESLint、Vitest のメジャー更新で CI が落ちたので閉じた)
-  2. 保存と退会の判断を純粋関数に切り出してテストした(src/lib/profile-rules.ts、delete-rules.ts。Vitest 83 件)
-  3. 使っていない依存を外した(@expo/ui、expo-device、expo-glass-effect、expo-symbols、expo-image と、app.json の expo-image の plugin)。npm ci の確認と expo export は通る
-  - **ネイティブの依存を外したので、再ビルド(npm run ios / android)と、両 OS での起動の確認が要る(未確認)**
-- 退会(PR #5)の未確認: 403(ログインから 5 分近く後の退会)、422 の文言、通知メールの到達、Android での退会
+- feature/s3-code-exchange(レビューの S3): マジックリンクで戻るリンクに、セッションを載せない。1 回限りのコード + PKCE にした
+  - Web(ブランチ feature/mobile-code-exchange、コミット済み 1b49b84。PR はまだ): mobileCodeExchange() が、expo() が付けた ?cookie= を取り除いて ?code= にする。POST /api/mobile/exchange {code, verifier} でセッションに引き換える。コードは 1 回で使い切り、60 秒で失効
+  - モバイル(未コミット): verifier(32 バイトのランダム)と challenge(SHA-256)を作り、callbackURL に cc を付けて要求する。戻ってきたリンクの code を、state を照合してから、verifier と一緒に引き換える(src/lib/exchange-code.ts、sign-in-link.ts、sign-in-rules.ts の Pending に verifier)。?cookie= 付きのリンクは拒否する。+native-intent.ts は code もルーターに渡さない。リンクの判断(cookie 付き・error 付きは拒否、code がなければ無視、形の検査)は judgeLink に切り出してテストした。Vitest 104 件、tsc、lint、expo export は通る。evaluator は合格
+  - 端末で確認済み: iOS でログインが通る(Web に `POST /api/mobile/exchange 200`)。同じリンクの再利用は失敗する。Android も、JS を再読み込みしたあと(古い JS だと cc が付かず、Web が missing_challenge で拒否する)ログインできた。**未確認: Web の「暗号化して保存」の変更のあと、もう一度のログイン**。Web の dev サーバーは feature/mobile-code-exchange で動かす
+  - デプロイの順序: 古いモバイルは、Web の新しい版でログインできなくなる(cc を送らない)。開発中は問題ない。本番は、モバイルと Web を同時に出す
+  - 残る限界: 攻撃者が自分で cc を付けたログインメールを被害者に送らせ、被害者の端末に攻撃者のアプリがある場合は、コードを取られる。Universal Links / App Links が要る(ドメインとストアの設定が決まってから)
 
 ## 既知の限界(許容している)
 - 実機は未確認(シミュレータとエミュレータのみ)
@@ -30,14 +32,12 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - Android のキーボードが退会のメール入力欄を隠さないかは未確認(automaticallyAdjustKeyboardInsets は iOS 専用)
 
 ## 本番の前に必須
-- **S3**: カスタムスキーム(betterauthmulti://)は他のアプリも登録できる。さらに Web の本番の trustedOrigins が無条件にこのスキームを含むので、モバイルを使わない人のメール宛てにも、攻撃者が callbackURL 付きのリンクを送らせられる。1 回限りのコード交換(Cookie を URL に載せない。短命のコードを、アプリが verifier 付きで引き換える)か、セッションを URL に載せない Universal Links / App Links にする
 - Go の本番の DB にマイグレーション 00002(deleted_users)を当ててから、Go を出す(逆だと PUT /me/profile と DELETE /me が 500)
 - app.json の com.anonymous.mobile を変える(ストア審査と App Links の設定で詰まる)
 - 本番ビルドは EXPO_PUBLIC_WEB_URL と EXPO_PUBLIC_API_URL(https)が必須。EXPO_PUBLIC_ の値はアプリに入って誰でも読めるので、秘密は入れない
 
 ## これから(順番)
-1. chore/deps-and-rules の再ビルドと両 OS での確認(Android はビルドは通ったが、エミュレータの ADB が不安定で起動の確認が未。iOS は未)、コミット(3 つに分ける: dependabot、純粋関数、依存の削除)、PR
-2. 退会の未確認項目(上)
-3. Google ログインの連携(ログイン済みのユーザーが後から足す任意の手段。モバイルから link / unlink。Web の仕様に合わせた設計が要る。expo-web-browser と expo-network を使う想定)
-4. 本番に出す準備と、実機での確認: 本番の Web と Go の URL に繋ぐ(EXPO_PUBLIC_WEB_URL と EXPO_PUBLIC_API_URL は https)、ビルド(EAS など。eas の実行は人が行う)、実機でのログイン、プロフィール、退会。その前に本番の前に必須(上): S3、bundle id と name と slug、Go のマイグレーション 00002
-5. Android のエミュレータの環境: ANDROID_HOME と PATH を ~/.zshrc に保存する(未設定だった)
+1. S3(上の実行中)の端末での通し、コミット、PR(Web の PR が先。モバイルと同時に出す)
+2. Google ログインの連携(ログイン済みのユーザーが後から足す任意の手段。モバイルから link / unlink。Web の仕様に合わせた設計が要る。expo-web-browser と expo-network を使う想定。Google のコールバックも、S3 のコード交換を通る)
+3. 本番に出す準備と、実機での確認: 本番の Web と Go の URL に繋ぐ(EXPO_PUBLIC_WEB_URL と EXPO_PUBLIC_API_URL は https)、ビルド(EAS など。eas の実行は人が行う)、実機でのログイン、プロフィール、退会。その前に: app.json の bundle id と name と slug、Go の本番 DB にマイグレーション 00002、Web と Go と モバイルの Dependabot alerts の確認
+4. Android のエミュレータの環境: ANDROID_HOME と PATH を ~/.zshrc に保存する(未設定だった)
