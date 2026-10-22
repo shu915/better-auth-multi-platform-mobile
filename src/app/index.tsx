@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DeleteAccount } from '@/components/delete-account';
 import { ProfileBio } from '@/components/profile-bio';
+import { SignInMethods } from '@/components/sign-in-methods';
 import { authClient } from '@/lib/auth-client';
 import { clearLocalSession } from '@/lib/local-session';
 
@@ -17,6 +18,8 @@ export default function HomeScreen() {
   const [savingProfile, setSavingProfile] = useState(false);
   // While the profile form is open the delete form is hidden (not unmounted: see DeleteAccount).
   const [editingProfile, setEditingProfile] = useState(false);
+  // While Google is being linked or unlinked, the account cannot be deleted (and the other way round).
+  const [linking, setLinking] = useState(false);
   // Deleted, but this screen is still up (the phone could not forget the session): the profile
   // stays locked, because a save would create the Go row again; signing out stays possible.
   const [deleted, setDeleted] = useState(false);
@@ -66,10 +69,16 @@ export default function HomeScreen() {
           onEditingChange={setEditingProfile}
         />
 
+        <SignInMethods
+          onUnauthorized={() => void signOut(true)}
+          onBusyChange={setLinking}
+          disabled={deleting || deleted}
+        />
+
         <Pressable
-          style={[styles.button, (signingOut || deleting) && styles.buttonDisabled]}
+          style={[styles.button, (signingOut || deleting || linking) && styles.buttonDisabled]}
           onPress={() => void signOut()}
-          disabled={signingOut || deleting}
+          disabled={signingOut || deleting || linking}
           accessibilityRole="button"
         >
           <Text style={styles.buttonText}>{signingOut ? 'Signing out…' : 'Sign out'}</Text>
@@ -87,7 +96,7 @@ export default function HomeScreen() {
           onUnauthorized={() => void signOut(true)}
           onDeletingChange={setDeleting}
           onDeleted={() => setDeleted(true)}
-          disabled={savingProfile || signingOut || deleted}
+          disabled={savingProfile || linking || signingOut || deleted}
           hidden={editingProfile}
         />
       </ScrollView>
