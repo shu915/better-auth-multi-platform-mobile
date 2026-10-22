@@ -4,11 +4,31 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    # Expo SDK packages move together (npx expo install --fix); better-auth and @better-auth/expo
-    # are pinned to the web app's version, so they are raised together with it (see CLAUDE.md).
-    groups:
-      npm:
-        patterns: ["*"]
+    # Dependabot only sees "a newer version exists". These packages move with something else, so a
+    # bump on its own breaks the project (the first monthly PR bumped TypeScript, ESLint and Vitest
+    # across majors and failed CI). They are changed by hand, for a reason:
+    #  - Expo SDK packages (expo*, react, react-native*, @types/react, typescript, eslint*):
+    #    the SDK decides the versions. Upgrade with `npx expo install --fix` when moving SDK.
+    #  - vitest (major only): 3.x on purpose. 5.x uses rolldown, and `npm install` on macOS then
+    #    drops the Linux bindings from package-lock.json, so CI fails (see CLAUDE.md).
+    # better-auth and @better-auth/expo are NOT ignored: they are pinned to the web app's version
+    # (see CLAUDE.md), and a PR for them is the reminder that the web app has to move too. Do not
+    # merge it on its own; raise both repositories together. They are the authentication library,
+    # so a missed release must not go unnoticed.
+    ignore:
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "@expo/*"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-*"
+      - dependency-name: "@types/react"
+      - dependency-name: "typescript"
+      - dependency-name: "eslint"
+      - dependency-name: "eslint-*"
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
