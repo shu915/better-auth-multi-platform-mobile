@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { signInWithGoogle } from '@/lib/sign-in-google';
 import { requestSignInLink } from '@/lib/sign-in-link';
 
 type Status =
   | { kind: 'idle' }
   | { kind: 'sending' }
+  | { kind: 'google' }
   | { kind: 'sent' }
   | { kind: 'error'; message: string };
 
@@ -15,7 +17,8 @@ export default function SignInScreen() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   const trimmed = email.trim();
-  const canSend = trimmed.includes('@') && status.kind !== 'sending';
+  const busy = status.kind === 'sending' || status.kind === 'google';
+  const canSend = trimmed.includes('@') && !busy;
 
   const send = async () => {
     if (!canSend) return;
@@ -37,6 +40,30 @@ export default function SignInScreen() {
     });
   };
 
+  // Only for an account that already linked Google (profile screen). The message does not say
+  // which of the reasons it was.
+  // The ref blocks a second tap before the state has been re-rendered.
+  const googleRunning = useRef(false);
+  const google = async () => {
+    if (busy || googleRunning.current) return;
+    googleRunning.current = true;
+    setStatus({ kind: 'google' });
+    const result = await signInWithGoogle().finally(() => {
+      googleRunning.current = false;
+    });
+    if (result.kind === 'signed-in' || result.kind === 'cancelled') {
+      setStatus({ kind: 'idle' }); // signed in: the screen is replaced
+      return;
+    }
+    setStatus({
+      kind: 'error',
+      message:
+        result.kind === 'refused'
+          ? 'Google sign-in is only for accounts that linked Google. Sign in with an email link first.'
+          : 'Could not sign in with Google. Try again.',
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.form}>
@@ -53,7 +80,7 @@ export default function SignInScreen() {
           autoComplete="email"
           autoCorrect={false}
           textContentType="emailAddress"
-          editable={status.kind !== 'sending'}
+          editable={!busy}
           onSubmitEditing={send}
         />
 
@@ -67,6 +94,18 @@ export default function SignInScreen() {
             {status.kind === 'sending' ? 'Sending…' : 'Send sign-in link'}
           </Text>
         </Pressable>
+
+        <Pressable
+          style={[styles.googleButton, busy && styles.buttonDisabled]}
+          onPress={() => void google()}
+          disabled={busy}
+          accessibilityRole="button"
+        >
+          <Text style={styles.googleText}>
+            {status.kind === 'google' ? 'Opening Google…' : 'Sign in with Google'}
+          </Text>
+        </Pressable>
+        <Text style={styles.hint}>Google works only if you linked it after signing in by email.</Text>
 
         {status.kind === 'sent' && (
           <Text style={styles.message}>
@@ -99,6 +138,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonDisabled: { opacity: 0.4 },
+  googleButton: {
+    borderWidth: 1,
+    borderColor: '#bbb',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  googleText: { fontSize: 16, fontWeight: '600' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   message: { fontSize: 14 },
   error: { fontSize: 14, color: '#c0392b' },

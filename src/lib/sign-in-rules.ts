@@ -144,3 +144,31 @@ export function judgeLink(
   }
   return { kind: 'code', code, state };
 }
+
+// The cookie jar expoClient keeps (JSON, name -> {value, ...}) holds the OAuth `oauth_state` cookie
+// that Better Auth set when the Google sign-in started. The browser has no cookie jar of ours, so
+// the value is handed to the web app's proxy, which sets it in the browser (see sign-in-google.ts).
+// The name is Better Auth's default prefix, with or without the __Secure- prefix.
+export function findOAuthState(cookieJson: string | null): string | null {
+  if (cookieJson === null) return null;
+  try {
+    const jar: unknown = JSON.parse(cookieJson);
+    if (typeof jar !== 'object' || jar === null) return null;
+    for (const name of ['__Secure-better-auth.oauth_state', 'better-auth.oauth_state']) {
+      const entry = (jar as Record<string, unknown>)[name];
+      const value =
+        typeof entry === 'object' && entry !== null ? (entry as { value?: unknown }).value : undefined;
+      if (typeof value === 'string' && value !== '') return value;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// A link that came back to a Google sign-in is ours only when it carries the `state` of that very
+// request. Anything else that opened the app meanwhile (another app, an old link) is none of its
+// business: it must not cancel the sign-in or be reported as its failure.
+export function linkBelongsTo(parsed: { queryParams?: Record<string, unknown> | null }, state: string): boolean {
+  return state !== '' && parsed.queryParams?.state === state;
+}
