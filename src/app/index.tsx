@@ -15,6 +15,8 @@ export default function HomeScreen() {
   // profile is being saved, deleting is off (see DeleteAccount and ProfileBio).
   const [deleting, setDeleting] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  // While the profile form is open the delete form is hidden (not unmounted: see DeleteAccount).
+  const [editingProfile, setEditingProfile] = useState(false);
   // Deleted, but this screen is still up (the phone could not forget the session): the profile
   // stays locked, because a save would create the Go row again; signing out stays possible.
   const [deleted, setDeleted] = useState(false);
@@ -61,6 +63,7 @@ export default function HomeScreen() {
           onUnauthorized={() => void signOut(true)}
           disabled={deleting || deleted}
           onSavingChange={setSavingProfile}
+          onEditingChange={setEditingProfile}
         />
 
         <Pressable
@@ -85,6 +88,7 @@ export default function HomeScreen() {
           onDeletingChange={setDeleting}
           onDeleted={() => setDeleted(true)}
           disabled={savingProfile || signingOut || deleted}
+          hidden={editingProfile}
         />
       </ScrollView>
     </SafeAreaView>

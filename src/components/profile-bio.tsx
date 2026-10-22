@@ -3,6 +3,15 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 
 import { getProfile, updateBio } from '@/lib/api';
 import { updateName } from '@/lib/profile-name';
+import {
+  bioFailure,
+  hasChanges,
+  nameFailure,
+  planSave,
+  SAVED,
+  type Failure,
+  type Message,
+} from '@/lib/profile-rules';
 
 // The API refuses more than 1000 characters; the input stops there too, but the API decides.
 const BIO_MAX = 1000;
@@ -10,8 +19,6 @@ const BIO_MAX = 1000;
 const NAME_MAX = 50;
 
 type Load = { kind: 'loading' } | { kind: 'failed' } | { kind: 'ready'; saved: string };
-
-type Message = { kind: 'ok' | 'error'; text: string };
 
 type Props = {
   // From the web app's session (the user row in Neon). The name is changed through the web app
@@ -25,11 +32,20 @@ type Props = {
   disabled?: boolean;
   // Tells the parent while a save is in flight, so the account cannot be deleted meanwhile.
   onSavingChange?: (saving: boolean) => void;
+  // Tells the parent while the form is open, so it can hide what must not be pressed meanwhile.
+  onEditingChange?: (editing: boolean) => void;
 };
 
 // Shows the bio from the Go API and lets the user change it. A failure here stays inside this
 // component: the rest of the screen (email, sign out) keeps working.
-export function ProfileBio({ name, email, onUnauthorized, disabled = false, onSavingChange }: Props) {
+export function ProfileBio({
+  name,
+  email,
+  onUnauthorized,
+  disabled = false,
+  onSavingChange,
+  onEditingChange,
+}: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [draft, setDraft] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -39,6 +55,9 @@ export function ProfileBio({ name, email, onUnauthorized, disabled = false, onSa
   }, [saving, onSavingChange]);
   const locked = saving || disabled;
   const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    onEditingChange?.(editing);
+  }, [editing, onEditingChange]);
   const [message, setMessage] = useState<Message | null>(null);
 
   const [attempt, setAttempt] = useState(0);
@@ -112,55 +131,29 @@ export function ProfileBio({ name, email, onUnauthorized, disabled = false, onSa
   // The name goes to the web app, the bio to the Go API; only what changed is sent, the name first.
   // If the name fails the bio is not sent, so the user fixes one thing at a time.
   const saveAll = async (savedBio: string) => {
-    const signedOut = () => {
-      setMessage({
-        kind: 'error',
-        text: 'Your session may have ended. If you are still signed in, sign out and sign in again.',
-      });
-      unauthorized.current();
+    const plan = planSave({ name, nameDraft, savedBio, bioDraft: draft });
+    const fail = (failure: Failure) => {
+      setMessage(failure.message);
+      if (failure.signOut) unauthorized.current();
     };
 
-    let nameSaved = false;
-    if (nameDraft.trim() !== name) {
+    if (plan.sendName) {
       const result = await updateName(nameDraft);
       if (!mounted.current) return;
-      if (result.ok) {
-        setNameDraft(result.name);
-        nameSaved = true;
-      } else if (result.status === 401) {
-        return signedOut();
-      } else if (result.status === 422) {
-        return setMessage({ kind: 'error', text: `The name was refused. ${result.message ?? ''}`.trim() });
-      } else {
-        return setMessage({
-          kind: 'error',
-          text: 'Could not save the name. Your text is kept. Check the connection and try again.',
-        });
-      }
+      if (!result.ok) return fail(nameFailure({ status: result.status, refusal: result.message }));
+      setNameDraft(result.name);
     }
 
-    if (draft !== savedBio) {
+    if (plan.sendBio) {
       const result = await updateBio(draft);
       if (!mounted.current) return;
-      if (result.ok) {
-        setDraft(result.data.bio);
-        setLoad({ kind: 'ready', saved: result.data.bio });
-      } else if (result.status === 401) {
-        return signedOut();
-      } else {
-        const lead = nameSaved ? 'The name was saved, but the bio was not. ' : '';
-        return setMessage({
-          kind: 'error',
-          text:
-            result.status === 422
-              ? `${lead}The bio was refused. Check that it is at most 1000 characters and has no unusual characters.`
-              : `${lead}Could not save the bio. Your text is kept. Check the connection and try again.`,
-        });
-      }
+      if (!result.ok) return fail(bioFailure({ status: result.status }, plan.sendName));
+      setDraft(result.data.bio);
+      setLoad({ kind: 'ready', saved: result.data.bio });
     }
 
     setEditing(false);
-    setMessage({ kind: 'ok', text: 'Saved.' });
+    setMessage(SAVED);
   };
 
   const header = (
@@ -220,7 +213,7 @@ export function ProfileBio({ name, email, onUnauthorized, disabled = false, onSa
     );
   }
 
-  const unchanged = draft === load.saved && nameDraft.trim() === name;
+  const unchanged = !hasChanges({ name, nameDraft, savedBio: load.saved, bioDraft: draft });
   return (
     <View style={styles.box}>
       <Text style={styles.label}>Name</Text>

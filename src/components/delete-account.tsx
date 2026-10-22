@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { deleteAccount, type DeleteResult } from '@/lib/delete-account';
+import { deleteOutcome } from '@/lib/delete-rules';
 
 type Props = {
   // The session is gone (a 401): the parent signs the user out.
@@ -15,15 +16,10 @@ type Props = {
   onDeleted?: () => void;
   // Something else is in flight (a bio save, a sign-out): do not start deleting.
   disabled?: boolean;
+  // Not drawn (the profile form is open). The component stays mounted, so what the user typed, a
+  // message such as "sign in again", and a deletion in flight are not lost.
+  hidden?: boolean;
 };
-
-const MESSAGES = {
-  'email-mismatch': 'That is not the email address of this account.',
-  'not-fresh':
-    'For security, sign out, sign in again with an email link, then delete your account right away (within a few minutes).',
-  'signed-out': 'Your session has ended.',
-  failed: 'Could not delete your account. Check the connection and try again; repeating it is safe.',
-} satisfies Record<Extract<DeleteResult, { ok: false }>['kind'], string>;
 
 // Deleting the account is final: the user types their email to confirm, and the web app checks it
 // against the session's email (this component does not decide). A successful deletion forgets the
@@ -33,6 +29,7 @@ export function DeleteAccount({
   onDeletingChange,
   onDeleted,
   disabled = false,
+  hidden = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -72,18 +69,13 @@ export function DeleteAccount({
       if (mounted.current) setDeleting(false);
     }
     if (!mounted.current) return;
-    if (result.ok) {
-      // Normally the app has already gone to the sign-in screen and this component is gone. Still
-      // here means the account is deleted but the phone could not forget the session: say so (the
-      // user must not think it failed and press again) and finish through the sign-out path.
-      onDeleted?.();
-      setMessage('Your account was deleted. If this screen stays, close and reopen the app to finish signing out.');
-      onUnauthorized();
-      return;
-    }
-    setMessage(MESSAGES[result.kind]);
-    if (result.kind === 'signed-out') onUnauthorized();
+    const outcome = deleteOutcome(result);
+    if (outcome.deleted) onDeleted?.();
+    setMessage(outcome.message);
+    if (outcome.signOut) onUnauthorized();
   };
+
+  if (hidden) return null;
 
   if (!open) {
     return (

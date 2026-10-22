@@ -7,33 +7,37 @@ Web 側の認証のルールは Web の docs/design.md。ここには状況だ�
 - 土台(PR #1): Expo SDK 58、hooks と evaluator、CI(lint、tsc、npm test、expo export)、Dependabot、CLAUDE.md
 - 認証(PR #2): マジックリンク → ディープリンク → セッションを SecureStore に保存。ログイン CSRF の防御(state を直近 3 つ保持、使い切り、10 分、リンクの形の検証。判断は src/lib/sign-in-rules.ts でテスト)。ログアウト。Web と同じ better-auth 1.7.7 に固定。iOS と Android で、ログイン、ログアウト、コールドスタート、偽リンクの拒否を確認済み
 - プロフィール(PR #4): 閲覧が既定で、Edit でフォーム。name/email は Web のセッション(Neon)、bio は Go。name は Web の PATCH /api/mobile/profile、bio は Go に直接。401 はサインアウト(失敗したら端末のセッションを消す: src/lib/local-session.ts)。取得失敗は Reload。iOS と Android で確認済み
-- Web 側: Expo 対応、auth_time(PR #23)、名前の更新(PR #24)、退会(PR #25)。Go 側: DELETE /me が 5 分以内の auth_time を要求(PR #17)
+- 退会(PR #5): ホーム最下部の Delete account → メールの再入力 → Web の DELETE /api/mobile/account。成功したら端末のセッションを消してログイン画面へ。422=メール違い、403=ログインが古い、401=サインアウト、その他=再試行。退会中は Sign out と bio の保存を無効にする。_layout.tsx は、セッションの読み込み中に画面を空にするのを「最初の 1 回だけ」にした(REMOVE_ROUTES 警告の対策)。iOS で退会し、Neon の user と Go の profiles が消えることまで確認済み
+- Web 側: Expo 対応、auth_time(PR #23)、名前の更新(PR #24)、退会(PR #25)。Go 側: DELETE /me が 5 分以内の auth_time を要求(PR #17)、退会後の復活の窓を閉じた(PR #18。deleted_users、10 分は PUT /me/profile が 410)
 
 ## 実行中
-- feature/delete-account(PR 3 本目、未コミット): ホーム最下部に退会(Delete account → メールの再入力 → Web の DELETE /api/mobile/account)。成功したら端末のセッションを消してログイン画面へ。422=メール違い、403=ログインが古い、401=サインアウト、その他=再試行。_layout.tsx は、セッションの読み込み中に画面を空にするのを「最初の 1 回だけ」にした(退会時の REMOVE_ROUTES 警告の対策)。Vitest 62 件、evaluator 合格。iOS で退会し、Neon の user と Go の profiles が消えることまで確認済み
-  - 未確認: 403(ログインから 5 分近く後の退会)、422 の文言、通知メールの到達、Android での退会
-  - 順序: Web の PR #25 は main に入った。デプロイしてから、このモバイルを出す
+- chore/deps-and-rules(未コミット)
+  1. dependabot.yml: Expo SDK が決める版、better-auth 系、vitest のメジャーを無視する(最初の月次の PR #3 は、TypeScript、ESLint、Vitest のメジャー更新で CI が落ちたので閉じた)
+  2. 保存と退会の判断を純粋関数に切り出してテストした(src/lib/profile-rules.ts、delete-rules.ts。Vitest 83 件)
+  3. 使っていない依存を外した(@expo/ui、expo-device、expo-glass-effect、expo-symbols、expo-image と、app.json の expo-image の plugin)。npm ci の確認と expo export は通る
+  - **ネイティブの依存を外したので、再ビルド(npm run ios / android)と、両 OS での起動の確認が要る(未確認)**
+- 退会(PR #5)の未確認: 403(ログインから 5 分近く後の退会)、422 の文言、通知メールの到達、Android での退会
 
 ## 既知の限界(許容している)
 - 実機は未確認(シミュレータとエミュレータのみ)
 - 画面のテストはない(判断のロジックだけテスト)。evaluator と CI は、端末での動作とネイティブのビルドを確認できない
 - Google ログインのリンク(モバイルから)は未対応
-- 未使用の依存が残っている(@expo/ui、expo-device、expo-network、expo-glass-effect、expo-symbols、expo-constants など)。ネイティブ依存の削除は再ビルドと両 OS の確認が要るので別の PR(app.json の plugins が使うものは plugin ごと見直す)
+- 使っていないが、残してある依存: expo-network と expo-web-browser(@better-auth/expo の任意の peer。Google の連携で使う)、expo-constants(expo-router と expo-client が使う)、expo-font、expo-status-bar、expo-splash-screen、expo-system-ui、react-native-gesture-handler / reanimated / worklets(expo-router の任意の peer。外すなら別途確認)
 - ログイン中に不一致のリンクが開かれても「Sign-in failed」のアラートが出る(見た目だけ)
 - 開発中、Android エミュレータでマジックリンクを開くには adb reverse tcp:3000 tcp:3000 が要る(再起動で消える)。adb が見つからないときは ANDROID_HOME と PATH(platform-tools)を通す
 - app.json の name と slug が雛形のまま。APP_SCHEME と STORAGE_PREFIX が config.ts と app.json に二重定義
 - ローカルでセッションを消すとき、大きな session_data の分割された断片が Keychain に残ることがある(読めず、次の保存で置き換わる)
+- Android のキーボードが退会のメール入力欄を隠さないかは未確認(automaticallyAdjustKeyboardInsets は iOS 専用)
 
 ## 本番の前に必須
 - **S3**: カスタムスキーム(betterauthmulti://)は他のアプリも登録できる。さらに Web の本番の trustedOrigins が無条件にこのスキームを含むので、モバイルを使わない人のメール宛てにも、攻撃者が callbackURL 付きのリンクを送らせられる。1 回限りのコード交換(Cookie を URL に載せない。短命のコードを、アプリが verifier 付きで引き換える)か、セッションを URL に載せない Universal Links / App Links にする
-- **退会後の復活の窓**: Go の PUT /me/profile が、退会後 5 分以内の古い JWT で行を作り直せる。Go 側で閉じる(Go の進捗ファイル参照)。モバイルの退会を出す前に
+- Go の本番の DB にマイグレーション 00002(deleted_users)を当ててから、Go を出す(逆だと PUT /me/profile と DELETE /me が 500)
 - app.json の com.anonymous.mobile を変える(ストア審査と App Links の設定で詰まる)
 - 本番ビルドは EXPO_PUBLIC_WEB_URL と EXPO_PUBLIC_API_URL(https)が必須。EXPO_PUBLIC_ の値はアプリに入って誰でも読めるので、秘密は入れない
 
 ## これから(順番)
-1. feature/delete-account の端末確認(上の未確認)、コミット、PR
-2. Go: 退会後の復活の窓を閉じる
-3. profile-bio.tsx と delete-account.tsx の保存・削除の判断を純粋関数に切り出してテストする
-4. dependabot.yml: Expo SDK が決める版(expo、react、react-native、typescript、eslint)、vitest のメジャー、better-auth 系を無視する(Dependabot の PR #3 は閉じる)
-5. 未使用の依存を外す
-6. 本番の前の必須項目(上)
+1. chore/deps-and-rules の再ビルドと両 OS での確認(Android はビルドは通ったが、エミュレータの ADB が不安定で起動の確認が未。iOS は未)、コミット(3 つに分ける: dependabot、純粋関数、依存の削除)、PR
+2. 退会の未確認項目(上)
+3. Google ログインの連携(ログイン済みのユーザーが後から足す任意の手段。モバイルから link / unlink。Web の仕様に合わせた設計が要る。expo-web-browser と expo-network を使う想定)
+4. 本番に出す準備と、実機での確認: 本番の Web と Go の URL に繋ぐ(EXPO_PUBLIC_WEB_URL と EXPO_PUBLIC_API_URL は https)、ビルド(EAS など。eas の実行は人が行う)、実機でのログイン、プロフィール、退会。その前に本番の前に必須(上): S3、bundle id と name と slug、Go のマイグレーション 00002
+5. Android のエミュレータの環境: ANDROID_HOME と PATH を ~/.zshrc に保存する(未設定だった)
