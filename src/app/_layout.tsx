@@ -17,7 +17,7 @@ export default function RootLayout() {
     if (!url || handled.current === url) return;
     handled.current = url;
     acceptSignInLink(url).then((result) => {
-      // Never show the URL or the reason: the link carries a session cookie.
+      // Never show the URL or the reason: the link carries a one-time sign-in code.
       if (result.kind === 'rejected' || result.kind === 'failed') {
         Alert.alert('Sign-in failed', 'This link cannot be used. Request a new one from this app.');
       }
