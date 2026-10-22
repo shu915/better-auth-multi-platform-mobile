@@ -1,10 +1,13 @@
 import { Platform } from 'react-native';
 
 // Where the web app (Better Auth) and the Go API are reached from the app.
-// Development: iOS simulator's localhost is the Mac; Android emulator reaches the Mac at 10.0.2.2.
+// Development: iOS simulator's localhost is the Mac; Android emulator reaches the Mac at 10.0.2.2 (the Go API; the web app is localhost, see below).
 // A real phone needs the Mac's LAN address (or a tunnel): set EXPO_PUBLIC_WEB_URL / EXPO_PUBLIC_API_URL.
 // Release builds must set both, and they must be https.
 const devHost = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+// The web app is reached as localhost on Android too (through `adb reverse tcp:3000 tcp:3000`, which
+// the mail link needs anyway). Google sends the browser back to http://localhost:3000, and the
+// cookie set when the sign-in started is kept per host: from 10.0.2.2 it would not come back.
 
 function resolveUrl(name: string, value: string | undefined, devDefault: string): string {
   if (!value) {
@@ -21,7 +24,7 @@ function resolveUrl(name: string, value: string | undefined, devDefault: string)
 export const WEB_URL = resolveUrl(
   'EXPO_PUBLIC_WEB_URL',
   process.env.EXPO_PUBLIC_WEB_URL,
-  `http://${devHost}:3000`,
+  'http://localhost:3000',
 );
 export const API_URL = resolveUrl(
   'EXPO_PUBLIC_API_URL',

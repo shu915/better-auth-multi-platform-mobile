@@ -55,23 +55,37 @@ async function savePending(list: Pending[]): Promise<void> {
 // `status` is the HTTP status when the web app answered (429 is "too many requests").
 export type RequestResult = { ok: true } | { ok: false; reason: string; status?: number };
 
-export async function requestSignInLink(email: string): Promise<RequestResult> {
+// A new sign-in request (magic link or Google): a random `state` and a PKCE verifier, remembered
+// before anything is sent, so a link cannot come back before it is known. Returns the query the web
+// app gets in the callbackURL (the state and the challenge, never the verifier).
+export async function startRequest(): Promise<{ state: string; query: string }> {
   const state = Crypto.randomUUID();
+  // 32 random bytes as base64url: 43 characters, the shape the web app expects.
+  const verifier = bytesToBase64Url(Crypto.getRandomBytes(32));
+  const challenge = base64ToBase64Url(
+    await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, {
+      encoding: Crypto.CryptoEncoding.BASE64,
+    }),
+  );
+  await savePending(addPending(await loadPending(), state, verifier, Date.now()));
+  return { state, query: `state=${state}&cc=${challenge}` };
+}
+
+// A request that failed or was given up: forget only it.
+export async function dropRequest(state: string): Promise<void> {
+  await savePending(removePending(await loadPending(), state));
+}
+
+export async function requestSignInLink(email: string): Promise<RequestResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let state = '';
   try {
-    // 32 random bytes as base64url: 43 characters, the shape the web app expects.
-    const verifier = bytesToBase64Url(Crypto.getRandomBytes(32));
-    const challenge = base64ToBase64Url(
-      await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, {
-        encoding: Crypto.CryptoEncoding.BASE64,
-      }),
-    );
-    // Remembered before the request, so a link cannot come back before it is known.
-    await savePending(addPending(await loadPending(), state, verifier, Date.now()));
+    const started = await startRequest();
+    state = started.state;
     // A path starting with "/" is turned into a link into this app by expoClient.
     const { error } = await authClient.signIn.magicLink(
-      { email, callbackURL: `/?state=${state}&cc=${challenge}` },
+      { email, callbackURL: `/?${started.query}` },
       { signal: controller.signal },
     );
     if (!error) return { ok: true };
@@ -79,7 +93,7 @@ export async function requestSignInLink(email: string): Promise<RequestResult> {
     // (An answer is not the same as no answer: on a timeout or a dropped connection the mail may
     // have been sent anyway, so the state stays.)
     if (typeof error.status === 'number' && error.status >= 400) {
-      await savePending(removePending(await loadPending(), state));
+      await dropRequest(state);
     }
     return {
       ok: false,
@@ -109,10 +123,28 @@ const REFUSED: Record<'no-request' | 'expired' | 'mismatch', string> = {
   mismatch: 'state does not match',
 };
 
+// The same link can reach the app twice (the in-app browser returns it, and the system may also open
+// it), and the two URLs need not be spelled the same, so the one-time code is what is compared. The
+// second time is not an error: it is skipped.
+const seen: string[] = [];
+
 export async function acceptSignInLink(url: string): Promise<AcceptResult> {
-  const verdict = judgeLink(Linking.parse(url), APP_SCHEME);
+  const parsed = Linking.parse(url);
+  const verdict = judgeLink(parsed, APP_SCHEME);
+  if (verdict.kind === 'rejected') {
+    // A refusal can arrive twice as well (the in-app browser and the listener): say it once, by state.
+    const refusedState = parsed.queryParams?.state;
+    if (typeof refusedState === 'string') {
+      if (seen.includes(`refused:${refusedState}`)) return { kind: 'ignored' };
+      seen.push(`refused:${refusedState}`);
+      if (seen.length > 5) seen.shift();
+    }
+  }
   if (verdict.kind !== 'code') return verdict;
   const { code, state } = verdict;
+  if (seen.includes(code)) return { kind: 'ignored' };
+  seen.push(code);
+  if (seen.length > 5) seen.shift();
 
   try {
     const result = consumePending(await loadPending(), state, Date.now());

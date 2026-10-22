@@ -16,7 +16,7 @@ Expo SDK 58 / React Native / Expo Router / TypeScript / Better Auth のクライ
 - Expo は SDK ごとに壊れる変更が入る。コードを書く前に、AGENTS.md の手順でバージョン別のドキュメントを読む
 
 ## 守るルール(特に壊しやすいもの)
-- **接続先はプラットフォームで違う**: iOS シミュレータは `localhost`、Android エミュレータは `10.0.2.2`(`src/lib/config.ts`)。実機は Mac の LAN アドレスを `EXPO_PUBLIC_WEB_URL` / `EXPO_PUBLIC_API_URL` に入れる
+- **接続先はプラットフォームで違う**: iOS シミュレータは `localhost`。Android エミュレータは、Go が `10.0.2.2`、Web は `localhost`(`adb reverse tcp:3000 tcp:3000` が要る。Google の戻り先が localhost で、Cookie はホストごとのため。`src/lib/config.ts`)。実機は Mac の LAN アドレスを `EXPO_PUBLIC_WEB_URL` / `EXPO_PUBLIC_API_URL` に入れる
 - **マジックリンクのメールのリンクは、Web の `BETTER_AUTH_URL`(`localhost:3000`)で作られる**。Android エミュレータで開くには `adb reverse tcp:3000 tcp:3000` が要る(エミュレータの再起動で消える)
 - アプリのスキーム(`betterauthmulti`)は、`app.json` の `scheme`、Web の `trustedOrigins`(`betterauthmulti://`)、`src/lib/config.ts` の `APP_SCHEME` で同じにする
 - セッションのトークンと JWT は SecureStore にだけ置く。`AsyncStorage` やログに出さない

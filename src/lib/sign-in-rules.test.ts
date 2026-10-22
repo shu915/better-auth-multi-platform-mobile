@@ -7,8 +7,10 @@ import {
   base64ToBase64Url,
   bytesToBase64Url,
   isVerifier,
+  linkBelongsTo,
   judgeLink,
   consumePending,
+  findOAuthState,
   hasSignInLinkShape,
   MAX_PENDING,
   parsePendingList,
@@ -256,5 +258,30 @@ describe('judgeLink', () => {
   it('checks the state against the open requests afterwards, so a made-up state still fails', () => {
     expect(consumePending([open('a')], 'made-up', NOW).ok).toBe(false);
     expect(consumePending([open('a')], '', NOW).ok).toBe(false);
+  });
+});
+
+describe('findOAuthState', () => {
+  it('reads the oauth_state cookie, secure or not', () => {
+    expect(findOAuthState(JSON.stringify({ 'better-auth.oauth_state': { value: 'a' } }))).toBe('a');
+    expect(findOAuthState(JSON.stringify({ '__Secure-better-auth.oauth_state': { value: 'b' } }))).toBe('b');
+  });
+
+  it('returns null when it is missing or the jar is not what we expect', () => {
+    for (const raw of [null, '', 'not json', '[]', '5', '{}', JSON.stringify({ 'better-auth.oauth_state': { value: '' } }), JSON.stringify({ 'better-auth.oauth_state': 'x' })]) {
+      expect(findOAuthState(raw)).toBeNull();
+    }
+  });
+});
+
+describe('linkBelongsTo', () => {
+  it('is true only for the state of this request', () => {
+    expect(linkBelongsTo({ queryParams: { state: 's1', code: 'c' } }, 's1')).toBe(true);
+    expect(linkBelongsTo({ queryParams: { state: 's2' } }, 's1')).toBe(false);
+    expect(linkBelongsTo({ queryParams: { state: ['s1'] } }, 's1')).toBe(false);
+    expect(linkBelongsTo({ queryParams: {} }, 's1')).toBe(false);
+    expect(linkBelongsTo({ queryParams: null }, 's1')).toBe(false);
+    expect(linkBelongsTo({}, 's1')).toBe(false);
+    expect(linkBelongsTo({ queryParams: { state: '' } }, '')).toBe(false);
   });
 });
