@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "Auth Practice",
+    "slug": "auth-practice",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.anonymous.mobile"
+      "bundleIdentifier": "com.shu915.authpractice"
     },
     "android": {
       "adaptiveIcon": {
@@ -20,7 +20,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "allowBackup": false,
-      "package": "com.anonymous.mobile"
+      "package": "com.shu915.authpractice"
     },
     "web": {
       "output": "static",
