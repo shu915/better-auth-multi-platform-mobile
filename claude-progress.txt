@@ -1,12 +1,12 @@
 claude-progress.txt (mobile)
-最終更新: 2026-10-26
+最終更新: 2026-10-28
 新しいセッションは、最初にこのファイルと CLAUDE.md を読む。Web 側の認証のルールは Web の docs/design.md。
 
 ## 状況: 完了
 iOS と Android の両方の実機で、本番の Web と Go にインターネットで繋いで、登録、編集、Google の連携、退会を確認した。実行中のタスクはない。
 
 ## できること(すべて main)
-- メールのログイン(マジックリンク)とログアウト。ログイン CSRF の防御と、1 回限りのコード + PKCE(S3)。判断は src/lib/sign-in-rules.ts
+- メールのログイン(マジックリンク)とログアウト。ログイン CSRF の防御と、1 回限りのコード + PKCE。判断は src/lib/sign-in-rules.ts
 - プロフィールの閲覧と編集(name は Web、bio は Go)
 - 退会(メールの再入力。5 分以内のログインが要る)
 - Google の連携と解除(プロフィール画面)、Google でのサインイン(ログイン画面。連携済みのユーザーだけ)
@@ -19,11 +19,11 @@ iOS と Android の両方の実機で、本番の Web と Go にインターネ�
 - 本番の DB は別なので、Google は本番でも連携し直す。Render の無料プランは、スリープ明けの最初の bio が出ない(Reload)
 
 ## 既知の限界
-- S3: 攻撃者のアプリが端末にある場合、コードを取られうる(Universal Links / App Links が要る)
-- Web の /api/auth/expo-authorization-proxy は任意の https にリダイレクトする。Web で authorizationURL を accounts.google.com に限る修正が要る(未対応)
+- 攻撃者のアプリが端末にある場合、コードを取られうる(Universal Links / App Links が要る)
 - 画面のテストはない(判断のロジックだけ)。ストアには出さない
 - 開発中の Android は、Web が localhost で `adb reverse tcp:3000 tcp:3000` が要る(Go は 10.0.2.2)
+- Web の /api/auth/expo-authorization-proxy の open redirect とログイン CSRF は、Web で修正済み(Web の PR 28、29)。モバイルの Google は、同じ入口を通る
 
-## これから(やるなら)
-- Web の open redirect の修正
+## やるなら
 - ANDROID_HOME と PATH を ~/.zshrc に保存する
+- @better-auth/expo を上げるときは、Web と同時に(版は固定している)
